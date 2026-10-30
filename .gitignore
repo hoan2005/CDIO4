@@ -1,0 +1,60 @@
+# Python environments
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Frontend dependencies
+node_modules/
+
+# Build
+dist/
+build/
+.vite/
+coverage/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+logs/
+
+# Temporary files
+temp/
+tmp/
+
+# Generated outputs
+outputs/
+output/
+
+# Uploaded user files
+uploads/
+
+# Cache
+.cache/
+cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Model cache
+.huggingface/
+.cache/huggingface/
+.cache/torch/
+
+# Testing
+.tox/
+.nox/
+
+# Documentation build
+site/
+
+# OS
+.Trash-*/.env
+.env
