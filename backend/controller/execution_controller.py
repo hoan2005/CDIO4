@@ -37,7 +37,22 @@ class ExecutionController:
             "draw_line_plane": draw_2D_3D.draw_plane,
         }
         # Bugfix: math_handlers phải là tham số riêng, không được lấy drawing_handlers.
-        self.math_handlers = math_handlers if math_handlers is not None else {}
+        self.math_handlers = math_handlers if math_handlers is not None else {
+            "draw_cube": draw_3D.draw_cube,
+            "draw_pyramid": draw_3D.draw_pyramid,
+            "draw_line": draw_2D_3D.draw_line,
+            "draw_point": draw_2D_3D.draw_point,
+            "draw_polygon_2d": draw_2D.draw_polygon_2d,
+            "draw_ellipse": draw_2D.draw_ellipse,
+            "draw_circle": draw_2D.draw_circle,
+            "draw_prism": draw_3D.draw_prism,
+            "draw_sphere": draw_3D.draw_sphere,
+            "draw_cone": draw_3D.draw_cone,
+            "draw_plane": draw_2D_3D.draw_plane,
+            "draw_hyperbola": draw_2D.draw_hyperbola,
+            "draw_function": draw_2D.draw_function,
+            "draw_line_plane": draw_2D_3D.draw_plane,
+        }
 
     # ==================================================
     # 1. KIỂM TRA KẾ HOẠCH
@@ -263,7 +278,7 @@ class ExecutionController:
 
             if not target_id:
                 raise ValueError(
-                    "remove_object yêu cầu target_id."
+                    "chưa tồn tại đối tượng trên canvas để xóa."
                 )
 
             return {

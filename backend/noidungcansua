@@ -1,2 +1,15 @@
-prompt chưa hiểu chọn cạnh nếu chỉ nói ví dụ vẽ cho tôi hình lập phương chưa tự chọn được cạnh, 
-chưa sử lý hết được bài toán, càn dùng few_shot cho nhiều ví dụ
+vấn đề về xác xuất suất giải còn sai
+vấn đè nếu bài toán yêu càu vẽ hai hình 2d 3d thì fail
+trường nếu trên canvas rỗng thì người bảo là xóa đối tượng thì phải báo về rỗng( hiện tại báo ko có id)
+
+
+mây dạng đề như này  prompt chưa chia được task vẽ 
+Trong không gian với hệ trục tọa độ Oxyz, mặt phẳng (P ) : bcx + acy + abz − abc = 0 qua điểm
+M (2; 4; 8) và cắt các tia Ox, Oy, Oz lần lượt tại A, B, C sao cho OA = 2OB = 4OC. Tính T = a + b + c.
+nó lại ko chia task vẽ mà chỉ là chia task anser
+
+vấn đề hiện tại prompt đang yếu và chưa đúng mục tiêu 
+bổ sung thêm cái vẽ góc 
+thêm hàm vẽ góc
+sửa few_shot cho đúng
+phải có task anser nếu đề bài có yêu giải kết hợp việc tạo task vẽ hình

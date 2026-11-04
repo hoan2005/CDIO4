@@ -431,20 +431,168 @@ class ConstructionSolver:
         t = sum(x * y for x, y in zip(ap, ab)) / denom
         return tuple(x + t * v for x, v in zip(a, ab))
 
-    def _line_intersection(self, points: List[Point], params: Dict[str, Any]) -> Point:
+
+    def _line_intersection(
+        self,
+        points: List[Point],
+        params: Dict[str, Any]
+    ) -> Point:
+        """
+        Tìm giao điểm của hai đường thẳng trong không gian 2D hoặc 3D.
+
+        points = [A, B, C, D]
+
+        Đường thẳng thứ nhất: AB
+        Đường thẳng thứ hai: CD
+
+        2D: giải hệ phương trình hai đường thẳng.
+        3D: tìm giao điểm thông qua hai đường thẳng tham số,
+            kiểm tra khoảng cách giữa hai điểm gần nhất.
+
+        Nếu hai đường chéo nhau trong không gian 3D thì báo lỗi,
+        không tự chiếu xuống mặt phẳng để tạo giao điểm giả.
+        """
+
         if len(points) != 4:
-            raise ConstructionError("line_intersection cần [A, B, C, D] cho hai đường AB và CD.")
-        if self._same_dimension(points) != 2:
-            raise ConstructionError("line_intersection hiện chỉ hỗ trợ hình học 2D.")
-        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = points
-        den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-        if abs(den) <= self.tolerance:
-            raise ConstructionError("Hai đường thẳng song song hoặc trùng nhau, không có giao điểm duy nhất.")
-        det1 = x1 * y2 - y1 * x2
-        det2 = x3 * y4 - y3 * x4
-        x = (det1 * (x3 - x4) - (x1 - x2) * det2) / den
-        y = (det1 * (y3 - y4) - (y1 - y2) * det2) / den
-        return (x, y)
+            raise ConstructionError(
+                "line_intersection cần đúng 4 điểm [A, B, C, D] "
+                "để xác định hai đường thẳng AB và CD."
+            )
+
+        dimension = self._same_dimension(points)
+
+        A, B, C, D = points
+
+        # ==================================================
+        # TRƯỜNG HỢP 1: HÌNH HỌC 2D
+        # ==================================================
+
+        if dimension == 2:
+            x1, y1 = A
+            x2, y2 = B
+            x3, y3 = C
+            x4, y4 = D
+
+            den = (
+                (x1 - x2) * (y3 - y4)
+                - (y1 - y2) * (x3 - x4)
+            )
+
+            if abs(den) <= self.tolerance:
+                raise ConstructionError(
+                    "Hai đường thẳng song song hoặc trùng nhau, "
+                    "không có giao điểm duy nhất."
+                )
+
+            det1 = x1 * y2 - y1 * x2
+            det2 = x3 * y4 - y3 * x4
+
+            x = (
+                det1 * (x3 - x4)
+                - (x1 - x2) * det2
+            ) / den
+
+            y = (
+                det1 * (y3 - y4)
+                - (y1 - y2) * det2
+            ) / den
+
+            return (x, y)
+
+        # ==================================================
+        # TRƯỜNG HỢP 2: HÌNH HỌC 3D
+        # ==================================================
+
+        if dimension == 3:
+
+            # Vector chỉ phương của hai đường thẳng
+            u = tuple(B[i] - A[i] for i in range(3))
+            v = tuple(D[i] - C[i] for i in range(3))
+
+            # Vector nối A đến C
+            w = tuple(A[i] - C[i] for i in range(3))
+
+            def dot(x, y):
+                return sum(x[i] * y[i] for i in range(3))
+
+            # Các tích vô hướng
+            aa = dot(u, u)
+            bb = dot(u, v)
+            cc = dot(v, v)
+            dd = dot(u, w)
+            ee = dot(v, w)
+
+            # Kiểm tra đường thẳng suy biến
+            if aa <= self.tolerance ** 2:
+                raise ConstructionError(
+                    "Đường thẳng AB không hợp lệ vì A và B trùng nhau."
+                )
+
+            if cc <= self.tolerance ** 2:
+                raise ConstructionError(
+                    "Đường thẳng CD không hợp lệ vì C và D trùng nhau."
+                )
+
+            # Mẫu số của hệ tìm hai điểm gần nhau nhất
+            denominator = aa * cc - bb * bb
+
+            if denominator <= self.tolerance * aa * cc:
+                raise ConstructionError(
+                    "Hai đường thẳng song song hoặc gần song song, "
+                    "không có giao điểm duy nhất."
+                )
+
+            # Tính tham số của hai đường thẳng:
+            #
+            # P1 = A + t * u
+            # P2 = C + s * v
+
+            t = (bb * ee - cc * dd) / denominator
+            s = (aa * ee - bb * dd) / denominator
+
+            # Điểm trên đường AB
+            P1 = tuple(
+                A[i] + t * u[i]
+                for i in range(3)
+            )
+
+            # Điểm trên đường CD
+            P2 = tuple(
+                C[i] + s * v[i]
+                for i in range(3)
+            )
+
+            # Khoảng cách giữa hai điểm gần nhau nhất
+            distance = sqrt(
+                sum((P1[i] - P2[i]) ** 2 for i in range(3))
+            )
+
+            # Sai số tương đối theo quy mô hình học
+            scale = max(
+                1.0,
+                sqrt(aa),
+                sqrt(cc),
+                sqrt(dot(w, w))
+            )
+
+            if distance > self.tolerance * scale:
+                raise ConstructionError(
+                    f"Hai đường thẳng AB và CD chéo nhau trong không gian 3D "
+                    f"(khoảng cách gần nhất = {distance:.8g}), "
+                    "không có giao điểm."
+                )
+
+            # Hai điểm gần trùng nhau trong giới hạn sai số.
+            # Lấy trung bình để trả về giao điểm ổn định.
+            return tuple(
+                (P1[i] + P2[i]) / 2.0
+                for i in range(3)
+            )
+
+        raise ConstructionError(
+            f"line_intersection không hỗ trợ hình học {dimension}D."
+        )
+
 
     def _tangent_point(self, points: List[Point], params: Dict[str, Any]) -> Point:
         if len(points) != 2:
