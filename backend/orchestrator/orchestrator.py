@@ -1,6 +1,7 @@
 """Orchestrator: convert a user request and current state into an execution plan."""
 
 from copy import deepcopy
+import re
 from typing import Any, Dict, List, Optional
 
 from .llm_client import LLMClient, LLMClientError
@@ -17,6 +18,9 @@ ALLOWED_OPERATIONS = {
     "draw_pyramid",
     "draw_line_plane",
     "draw_polygon_2d",
+    "draw_polygon_3d",
+    "draw_angle",
+    "draw_equal_segments",
     "draw_ellipse",
     "draw_hyperbola",
     "draw_circle",
@@ -29,11 +33,57 @@ ALLOWED_OPERATIONS = {
 }
 
 ALLOWED_DIMENSIONS = {"2d", "3d", None}
-ALLOWED_PROBLEM_TYPES = {"geometry", "algebra", "calculus", "other", "ambiguous"}
+ALLOWED_PROBLEM_TYPES = {
+    "geometry", "algebra", "calculus", "probability", "other", "ambiguous"
+}
+CANVAS_OPERATIONS = ALLOWED_OPERATIONS - {"answer", "clarify"}
+ANSWER_REQUEST_PATTERN = re.compile(
+    r"\b(?:tính|giải|chứng minh|tìm|xác định|rút gọn|tính toán|"
+    r"bao nhiêu|giá trị|answer|solve|calculate|compute|prove|find)\b",
+    re.IGNORECASE,
+)
 
 
 class PlanValidationError(ValueError):
     """Raised when the generated plan does not follow the expected contract."""
+
+
+def ensure_answer_task(plan: Dict[str, Any], user_message: str) -> Dict[str, Any]:
+    """Keep an explicit answer task when a visual request also asks for a solution."""
+    tasks = plan.get("tasks")
+    if not isinstance(tasks, list):
+        return plan
+    has_canvas_task = any(
+        isinstance(task, dict) and task.get("operation") in CANVAS_OPERATIONS
+        for task in tasks
+    )
+    has_answer_task = any(
+        isinstance(task, dict) and task.get("operation") == "answer"
+        for task in tasks
+    )
+    if not has_canvas_task or has_answer_task or not ANSWER_REQUEST_PATTERN.search(user_message):
+        return plan
+
+    updated = dict(plan)
+    updated_tasks = list(tasks)
+    task_ids = {
+        task.get("id") for task in updated_tasks
+        if isinstance(task, dict) and isinstance(task.get("id"), str)
+    }
+    task_id = "answer_required"
+    suffix = 2
+    while task_id in task_ids:
+        task_id = f"answer_required_{suffix}"
+        suffix += 1
+    updated_tasks.append({
+        "id": task_id,
+        "domain": "other",
+        "operation": "answer",
+        "depends_on": [],
+        "input": {"question": user_message},
+    })
+    updated["tasks"] = updated_tasks
+    return updated
 
 
 def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -156,6 +206,8 @@ class Orchestrator:
             temperature=0.2,
         )
         print("++++++++++++++++",raw_plan)
+        if isinstance(raw_plan, dict):
+            raw_plan = ensure_answer_task(raw_plan, user_message)
         return validate_plan(raw_plan)
 
 

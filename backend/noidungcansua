@@ -1,15 +1,8 @@
-vấn đề về xác xuất suất giải còn sai
-vấn đè nếu bài toán yêu càu vẽ hai hình 2d 3d thì fail
-trường nếu trên canvas rỗng thì người bảo là xóa đối tượng thì phải báo về rỗng( hiện tại báo ko có id)
+voi bai toan Vẽ tam giác (ABC) trong không gian với (A(4,0,0)), (B(0,2,0)), (C(0,0,1)). co vấn đề nó vẫn đang vẽ trên 2d không phải 3d
 
 
-mây dạng đề như này  prompt chưa chia được task vẽ 
-Trong không gian với hệ trục tọa độ Oxyz, mặt phẳng (P ) : bcx + acy + abz − abc = 0 qua điểm
-M (2; 4; 8) và cắt các tia Ox, Oy, Oz lần lượt tại A, B, C sao cho OA = 2OB = 4OC. Tính T = a + b + c.
-nó lại ko chia task vẽ mà chỉ là chia task anser
-
-vấn đề hiện tại prompt đang yếu và chưa đúng mục tiêu 
-bổ sung thêm cái vẽ góc 
-thêm hàm vẽ góc
-sửa few_shot cho đúng
-phải có task anser nếu đề bài có yêu giải kết hợp việc tạo task vẽ hình
+. Hình chóp — nhiều phép tính và hình phụ
+Cho hình chóp (S.ABC), đáy (ABC) là tam giác vuông tại (A), (AB=3), (AC=4), (SA\perp(ABC)), (SA=5).
+a) Tính thể tích hình chóp.
+b) Tính độ dài (SC).
+c) Vẽ hình chóp, đánh dấu góc vuông tại (A) và các cạnh (AB, AC, SA) theo đúng dữ kiện. van de nó chỉ mới vẽ góc vuông cho tam giác, hình vuông , chứ nếu như bài này SA vuông góc mặt phẳng nó lại chưa ký hiệu vuông góc giữu SA và với AB vad AD

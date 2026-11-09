@@ -1,3 +1,155 @@
 vẽ hình chóp S.ABCD có đáy là hình vuông cạnh a, SA vuông góc với đáy, SC tạo đáy một góc
 bằng 0
 45 . Tính thể tích V của khối chóp , .S ABCD
+
+Dưới đây là bộ câu hỏi để bạn test. Nên xóa canvas trước các bài kiểm tra yêu cầu vẽ, và thử từng câu riêng.
+
+1. Xóa khi canvas rỗng
+Hãy xóa tất cả đối tượng trên canvas.
+
+Mong đợi: Trợ lý báo canvas đang trống, không báo thiếu object_id.
+
+2. Bài vừa giải vừa vẽ — đúng đề bạn nêu
+Trong không gian Oxyz, mặt phẳng ((P): bcx+acy+abz-abc=0) đi qua (M(2;4;8)), cắt các tia (Ox, Oy, Oz) lần lượt tại (A,B,C), biết (OA=2OB=4OC). Tính (T=a+b+c) và vẽ hình minh họa.
+
+Mong đợi: Có lời giải (T=73{,}5) và hình minh họa 3D gồm mặt tam giác (ABC) cùng điểm (M).
+
+3. Góc vuông và ký hiệu
+Vẽ tam giác (ABC) vuông tại (A), lấy (AB=3), (AC=4), rồi đánh dấu góc vuông tại (A).
+
+Mong đợi: Tam giác có góc vuông đúng tại (A), có ký hiệu góc vuông.
+
+4. Đánh dấu các cạnh bằng nhau
+Vẽ tam giác cân (ABC) tại (A), với (AB=AC=5), (BC=6). Đánh dấu hai cạnh bằng nhau.
+
+Mong đợi: (AB) và (AC) có cùng ký hiệu vạch; độ dài hai cạnh thực sự bằng nhau.
+
+5. Kết hợp nhiều ký hiệu
+Vẽ hình vuông (ABCD), đánh dấu góc vuông tại (A) và đánh dấu bốn cạnh bằng nhau.
+
+Mong đợi: Có hình vuông, ký hiệu góc vuông và các cạnh có cùng số vạch.
+
+6. Hình phẳng trong không gian
+Vẽ tam giác (ABC) trong không gian với (A(4,0,0)), (B(0,2,0)), (C(0,0,1)).
+
+Mong đợi: Hiển thị đa giác phẳng 3D; có thể xoay góc nhìn và thấy đủ ba đỉnh/cạnh.
+
+7. Xác suất rút không hoàn lại
+Hộp có 3 bi đỏ và 2 bi xanh. Rút đồng thời 2 viên. Tính xác suất cả hai viên đều đỏ.
+
+Đáp án kiểm tra: (\frac{\binom{3}{2}}{\binom{5}{2}}=\frac{3}{10}).
+
+8. Xác suất có điều kiện
+Hộp có 3 bi đỏ và 2 bi xanh. Rút lần lượt 2 viên không hoàn lại. Biết viên đầu tiên màu đỏ, tính xác suất viên thứ hai cũng màu đỏ.
+
+Đáp án kiểm tra: (\frac{2}{4}=\frac12).
+
+9. Xác suất có hoàn lại
+Hộp có 3 bi đỏ và 2 bi xanh. Rút 2 lần, mỗi lần bỏ viên đã rút lại vào hộp. Tính xác suất cả hai lần đều rút được bi đỏ.
+
+Đáp án kiểm tra: (\left(\frac35\right)^2=\frac9{25}).
+
+10. Xóa khi canvas có hình
+Vẽ một đường tròn tâm (O), bán kính (3).
+Sau đó: Hãy xóa đối tượng đường tròn vừa vẽ.
+
+Mong đợi: Đường tròn bị xóa khỏi canvas. Sau đó thử lại câu 1 để kiểm tra trường hợp canvas rỗng.
+
+
+
+1. Tam giác vuông — giải và vẽ
+Cho tam giác (ABC) vuông tại (A), biết (AB=6), (AC=8).
+a) Tính (BC).
+b) Tính diện tích tam giác (ABC).
+c) Vẽ tam giác và đánh dấu góc vuông tại (A).
+
+Kiểm tra: Có lời giải (BC=10), diện tích (24); canvas có tam giác và dấu vuông tại (A).
+
+2. Hình chóp — nhiều phép tính và hình phụ
+Cho hình chóp (S.ABC), đáy (ABC) là tam giác vuông tại (A), (AB=3), (AC=4), (SA\perp(ABC)), (SA=5).
+a) Tính thể tích hình chóp.
+b) Tính độ dài (SC).
+c) Vẽ hình chóp, đánh dấu góc vuông tại (A) và các cạnh (AB, AC, SA) theo đúng dữ kiện.
+
+Kiểm tra: Thể tích (10), (SC=\sqrt{41}); hình có đáy vuông tại (A) và (SA\perp(ABC)).
+
+3. Hình chóp đáy vuông — giải, vẽ và dựng khoảng cách
+Cho hình chóp (S.ABCD) có đáy (ABCD) là hình vuông cạnh (4), (SA\perp(ABCD)), (SA=3).
+a) Tính thể tích hình chóp.
+b) Tính khoảng cách từ (A) đến mặt phẳng ((SBC)).
+c) Vẽ hình, đánh dấu các cạnh đáy bằng nhau và góc vuông tại (A); nếu dựng được, vẽ thêm đoạn vuông góc thể hiện khoảng cách ở câu b.
+
+Kiểm tra: Thể tích (16), khoảng cách (12/5). Hình vẽ phải thể hiện đúng các quan hệ đã cho, không chỉ có hình chóp chung chung.
+
+4. Xác suất nhiều biến cố — rút không hoàn lại
+Một hộp có 4 viên bi đỏ và 3 viên bi xanh. Rút ngẫu nhiên liên tiếp 2 viên, không hoàn lại.
+a) Tính xác suất cả hai viên đều đỏ.
+b) Tính xác suất rút được đúng một viên đỏ.
+c) Biết viên đầu tiên màu xanh, tính xác suất viên thứ hai màu đỏ.
+
+Kiểm tra: a) (2/7); b) (4/7); c) (2/3). Lưu ý ở câu c phải cập nhật số bi sau lần rút đầu.
+
+5. Mặt phẳng cắt trục — đúng trường hợp bạn báo lỗi
+Trong không gian (Oxyz), mặt phẳng ((P):bcx+acy+abz-abc=0) đi qua (M(2;4;8)), cắt các tia (Ox, Oy, Oz) lần lượt tại (A,B,C), biết (OA=2OB=4OC).
+a) Tìm (a,b,c).
+b) Tính (T=a+b+c).
+c) Vẽ tam giác (ABC) nằm trên mặt phẳng ((P)) trong không gian và đánh dấu điểm (M).
+
+Kiểm tra: (a=42,\ b=21,\ c=10{,}5,\ T=73{,}5). Plan cần có cả task trả lời và task vẽ; canvas nên có mặt tam giác 3D cùng điểm (M).
+
+6. Hình vuông — ký hiệu bằng nhau và góc
+Cho hình vuông (ABCD) có cạnh dài (5).
+a) Tính chu vi hình vuông.
+b) Tính diện tích hình vuông.
+c) Vẽ hình vuông, đánh dấu bốn cạnh bằng nhau và các góc vuông.
+
+Kiểm tra: Chu vi (20), diện tích (25); các ký hiệu phải xuất hiện trên hình.
+
+Khi kiểm tra, ngoài câu trả lời cuối, bạn nên xem log plan của backend: có đủ task answer và các task vẽ cần thiết không, các task có dependency hợp lý không, và các ký hiệu có gắn đúng điểm/cạnh không.
+
+
+
+
+Dưới đây là 4 bài nhiều ý, độ khó gần với đề ôn thi tốt nghiệp THPT, có cả tính toán nhiều bước và yêu cầu vẽ để kiểm tra planner. Bạn có thể gửi từng đề nguyên văn vào chatbot.
+
+Bài 1 — Khảo sát hàm số
+Cho hàm số (f(x)=x^3-3x^2-9x+1).
+a) Tính (f'(x)), tìm các điểm cực trị và giá trị cực trị.
+b) Xác định các khoảng đồng biến, nghịch biến và điểm uốn của đồ thị.
+c) Biện luận số nghiệm thực phân biệt của phương trình (f(x)=m) theo (m).
+
+Đáp án kiểm tra: Cực đại tại (x=-1), giá trị (6); cực tiểu tại (x=3), giá trị (-26); điểm uốn ((1,-10)). Số nghiệm: 1 nếu (m<-26) hoặc (m>6); 2 nếu (m=-26) hoặc (m=6); 3 nếu (-26<m<6).
+
+Bài 2 — Hình chóp, khoảng cách và góc
+Cho hình chóp (S.ABCD) có đáy (ABCD) là hình vuông cạnh (4), (SA\perp(ABCD)), (SA=3).
+a) Tính thể tích khối chóp.
+b) Tính độ dài (SC) và góc giữa (SC) với mặt phẳng đáy.
+c) Tính khoảng cách từ (A) đến mặt phẳng ((SBC)).
+d) Vẽ hình chóp; đánh dấu các cạnh đáy bằng nhau và góc vuông giữa (SA) với (AB).
+
+Đáp án kiểm tra: (V=16), (SC=\sqrt{41}), góc (\alpha) thỏa (\sin\alpha=3/\sqrt{41}), (d(A,(SBC))=12/5). Canvas cần thể hiện hình chóp và các ký hiệu theo yêu cầu.
+
+Bài 3 — Xác suất có điều kiện
+Một hộp có 5 viên bi đỏ và 3 viên bi xanh. Rút lần lượt 2 viên, không hoàn lại. Gọi (X) là số viên bi đỏ được rút.
+a) Tính xác suất rút được hai viên khác màu.
+b) Biết viên thứ nhất màu đỏ, tính xác suất viên thứ hai màu xanh.
+c) Lập phân phối xác suất của (X), rồi tính (E(X)).
+d) Tính xác suất rút được ít nhất một viên đỏ.
+
+Đáp án kiểm tra:
+a) (15/28); b) (3/7).
+c) (P(X=0)=3/28,\ P(X=1)=15/28,\ P(X=2)=10/28), nên (E(X)=5/4).
+d) (25/28).
+
+Bài 4 — Mũ và logarit
+a) Giải phương trình (2^{x+1}+2^{1-x}=5).
+b) Giải phương trình (\log_2(x-1)+\log_2(x+1)=3), nêu điều kiện xác định.
+c) Xét tính đơn điệu của (g(x)=\log_2(x-1)+\log_2(x+1)) trên tập xác định và giải thích vì sao phương trình ở câu b có nhiều nhất một nghiệm.
+
+Đáp án kiểm tra:
+a) (x=-1) hoặc (x=1).
+b) Điều kiện (x>1), nghiệm (x=3).
+c) (g) đồng biến trên ((1,+\infty)), nên phương trình có nhiều nhất một nghiệm.
+
+Khi kiểm tra các bài hình học, hãy xem cả lời giải lẫn canvas; với bài xác suất, chú ý chatbot có phân biệt đúng rút không hoàn lại và xác suất có điều kiện không.
+

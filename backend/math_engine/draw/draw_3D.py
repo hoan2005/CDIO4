@@ -3,7 +3,7 @@ from math import dist
 
 
 from math_engine.draw.Common import (
-        clean_vertex_names, common_fields, get_dict, make_edge, make_id,
+        HEX_COLOR_PATTERN, clean_vertex_names, common_fields, get_dict, make_edge, make_id,
         positive_number, require_dict, validate_point,
     )
 
@@ -17,6 +17,56 @@ def _vertex_coords(names: list, coordinates: dict) -> dict:
             raise ValueError(f"Thiếu tọa độ đỉnh {name}.")
         result[name] = validate_point(coordinates[name], f"đỉnh {name}", dims=(3,))
     return result
+
+
+def draw_polygon_3d(input_data: dict, state: dict = None) -> dict:
+    """Đa giác phẳng 3D, dùng để biểu diễn tam giác/mặt phẳng hữu hạn."""
+    input_data = require_dict(input_data)
+    names = clean_vertex_names(input_data.get("vertices"))
+    if len(names) < 3:
+        raise ValueError("Đa giác 3D phải có ít nhất 3 đỉnh.")
+
+    vertices = _vertex_coords(names, get_dict(input_data, "coordinates"))
+    origin = vertices[names[0]]
+    first = next(
+        ([(vertices[name][i] - origin[i]) for i in range(3)]
+         for name in names[1:] if vertices[name] != origin),
+        None,
+    )
+    if first is None:
+        raise ValueError("Đa giác 3D không được có các đỉnh trùng nhau.")
+    normal = None
+    for name in names[1:]:
+        vector = [vertices[name][i] - origin[i] for i in range(3)]
+        candidate = _cross(first, vector)
+        if math.sqrt(sum(value * value for value in candidate)) > 1e-9:
+            normal = candidate
+            break
+    if normal is None:
+        raise ValueError("Các đỉnh đa giác 3D không được thẳng hàng.")
+
+    normal_length = math.sqrt(sum(value * value for value in normal))
+    for name in names[1:]:
+        offset = [vertices[name][i] - origin[i] for i in range(3)]
+        if abs(sum(normal[i] * offset[i] for i in range(3))) > 1e-7 * normal_length:
+            raise ValueError("Các đỉnh đa giác 3D phải đồng phẳng.")
+
+    edges = [make_edge(names[i], names[(i + 1) % len(names)]) for i in range(len(names))]
+    style = get_dict(input_data, "style")
+    fill_color = input_data.get("fill_color", style.get("fill_color"))
+    if not isinstance(fill_color, str) or not HEX_COLOR_PATTERN.match(fill_color.strip()):
+        fill_color = None
+    return {
+        "id": make_id("polygon3d"),
+        "kind": "polygon",
+        "dimension": "3d",
+        "label": input_data.get("label", "".join(names)),
+        "vertices": vertices,
+        "vertex_order": names,
+        "edges": edges,
+        **({"fill_color": fill_color.strip()} if fill_color else {}),
+        **common_fields(input_data),
+    }
 
 
 def _cross(u, v):

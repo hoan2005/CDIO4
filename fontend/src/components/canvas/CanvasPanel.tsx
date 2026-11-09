@@ -1,6 +1,4 @@
 
-import React from 'react'
-
 import {
   useAppStore,
 } from '@/store/useAppStore'
@@ -37,6 +35,12 @@ export default function CanvasPanel() {
     useAppStore(
       state =>
         state.setCanvasMode
+    )
+
+  const sendMessage =
+    useAppStore(
+      state =>
+        state.sendMessage
     )
 
 
@@ -341,6 +345,7 @@ export default function CanvasPanel() {
               objects={
                 canvasObjects
               }
+              onSendMessage={sendMessage}
             />
 
           ) : (
@@ -349,6 +354,7 @@ export default function CanvasPanel() {
               objects={
                 canvasObjects
               }
+              onSendMessage={sendMessage}
             />
 
           )}
@@ -420,4 +426,3 @@ export default function CanvasPanel() {
 
   )
 }
-

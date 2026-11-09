@@ -68,6 +68,9 @@ DRAW_OPERATIONS = {
     "draw_pyramid",
     "draw_line_plane",
     "draw_polygon_2d",
+    "draw_polygon_3d",
+    "draw_angle",
+    "draw_equal_segments",
     "draw_ellipse",
     "draw_hyperbola",
     "draw_circle",
@@ -524,6 +527,22 @@ def _new_response(conversation_id: str, content: str, canvas: Optional[dict] = N
     }
 
 
+def _is_canvas_delete_request(message: str) -> bool:
+    """Nhận diện yêu cầu xóa hình, tránh nhầm phép biến đổi đại số như xóa mẫu số."""
+    normalized = message.strip().lower()
+    starts_with_delete = re.match(
+        r"^(?:(?:hãy|vui lòng|giúp tôi|làm ơn)\s+)*(?:xóa|xoá|xoa|hủy|huỷ|huy|gỡ|go|remove|delete)\b",
+        normalized,
+    )
+    if not starts_with_delete:
+        return False
+    return bool(re.search(
+        r"\b(?:canvas|đối tượng|hình|hình vẽ|điểm|đường|mặt phẳng|"
+        r"tất cả|hết|toàn bộ|object|objects|all)\b",
+        normalized,
+    ))
+
+
 def _normalize_point_name(key: str) -> str:
     """Orchestrator đặt control theo 'point_A' còn tọa độ theo 'A' -> quy về 'A'."""
     if isinstance(key, str) and key.startswith("point_") and len(key) > 6:
@@ -579,9 +598,14 @@ def _collect_state_points(state: Dict[str, Any]) -> Dict[str, List[float]]:
             for name, values in coords.items():
                 add_point(name, values)
 
-        # Polygon/solid có thể dùng vertices + vertex_names.
-        vertex_names = obj.get("vertex_names")
         vertices = obj.get("vertices")
+        # Polygon/solid dùng vertices dạng map tên điểm -> tọa độ.
+        if isinstance(vertices, dict):
+            for name, values in vertices.items():
+                add_point(name, values)
+
+        # Một số schema cũ dùng vertices + vertex_names dạng list.
+        vertex_names = obj.get("vertex_names")
         if isinstance(vertex_names, (list, tuple)) and isinstance(vertices, (list, tuple)):
             for name, values in zip(vertex_names, vertices):
                 add_point(name, values)
@@ -1085,6 +1109,11 @@ def xuly_thongtin(current_question: str, conversation_id: str = DEFAULT_CONVERSA
     # 1. State hiện tại
     state = state_manager.get_state(conversation_id)
     print("..............",state["canvas_objects"])
+
+    if not state.get("canvas_objects") and _is_canvas_delete_request(current_question):
+        answer = "Canvas hiện đang trống, không có đối tượng nào để xóa."
+        state_manager.add_turn(conversation_id, current_question, answer)
+        return _new_response(conversation_id, answer)
 
     # 2. Orchestrator chia plan
     try:

@@ -128,6 +128,41 @@ export interface PolygonObject {
   constraints?: unknown[]
 }
 
+export interface Polygon3DObject extends ObjectStyle {
+  id: string
+  kind: 'polygon'
+  label: string
+  dimension: '3d'
+  vertices: Record<string, [number, number, number]>
+  vertex_order: string[]
+  edges?: Array<{ start: string; end: string }>
+  fill_color?: string
+  role?: string
+  constraints?: unknown[]
+}
+
+export interface AngleObject extends ObjectStyle {
+  id: string
+  kind: 'angle'
+  label: string
+  dimension: '2d' | '3d'
+  points: [string, string, string]
+  coordinates: Record<string, [number, number] | [number, number, number]>
+  angle_degrees: number
+  right_angle: boolean
+  marker_size: number
+}
+
+export interface EqualSegmentsObject extends ObjectStyle {
+  id: string
+  kind: 'equal_segments'
+  label: string
+  dimension: '2d' | '3d'
+  segments: Array<{ start: string; end: string }>
+  coordinates: Record<string, [number, number] | [number, number, number]>
+  mark_count: number
+}
+
 export interface PyramidObject extends ObjectStyle {
   id: string
   kind: 'pyramid'
@@ -189,6 +224,9 @@ export type CanvasObject =
   | ConeObject
   | PlaneObject
   | PolygonObject
+  | Polygon3DObject
+  | AngleObject
+  | EqualSegmentsObject
   | CubeObject
   | PyramidObject
   | PrismObject

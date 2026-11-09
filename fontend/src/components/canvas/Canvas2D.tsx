@@ -10,7 +10,9 @@ import {
 } from 'react-konva'
 
 import type {
+  AngleObject,
   CanvasObjectWithMeta,
+  EqualSegmentsObject,
   FunctionObject,
 } from '@/types'
 
@@ -131,10 +133,6 @@ export default function Canvas2D({
 
   const toCanvasPoint = (x: number, y: number): [number, number] => {
     return [originX + x * scale, originY - y * scale]
-  }
-
-  const toMathPoint = (canvasX: number, canvasY: number): [number, number] => {
-    return [(canvasX - originX) / scale, (originY - canvasY) / scale]
   }
 
   // ==========================================================
@@ -438,6 +436,98 @@ export default function Canvas2D({
                   )}
                 </React.Fragment>
               )
+            }
+
+            if (item.object.kind === 'angle') {
+              const angle = item.object as AngleObject
+              const [firstName, vertexName, lastName] = angle.points
+              const first = angle.coordinates[firstName]
+              const vertex = angle.coordinates[vertexName]
+              const last = angle.coordinates[lastName]
+              if (!first || !vertex || !last || first.length < 2 || vertex.length < 2 || last.length < 2) return null
+
+              const ax = first[0] - vertex[0]
+              const ay = first[1] - vertex[1]
+              const cx = last[0] - vertex[0]
+              const cy = last[1] - vertex[1]
+              const firstLength = Math.hypot(ax, ay)
+              const lastLength = Math.hypot(cx, cy)
+              if (!firstLength || !lastLength) return null
+              const ux = ax / firstLength
+              const uy = ay / firstLength
+              const vx = cx / lastLength
+              const vy = cy / lastLength
+              const radius = angle.marker_size ?? 0.35
+              const marker: number[] = []
+
+              if (angle.right_angle) {
+                const corners = [
+                  [vertex[0], vertex[1]],
+                  [vertex[0] + ux * radius, vertex[1] + uy * radius],
+                  [vertex[0] + (ux + vx) * radius, vertex[1] + (uy + vy) * radius],
+                  [vertex[0] + vx * radius, vertex[1] + vy * radius],
+                ]
+                corners.forEach(([x, y]) => marker.push(...toCanvasPoint(x, y)))
+              } else {
+                const start = Math.atan2(uy, ux)
+                let delta = Math.atan2(vy, vx) - start
+                while (delta > Math.PI) delta -= 2 * Math.PI
+                while (delta < -Math.PI) delta += 2 * Math.PI
+                for (let step = 0; step <= 24; step++) {
+                  const theta = start + delta * step / 24
+                  marker.push(...toCanvasPoint(
+                    vertex[0] + radius * Math.cos(theta),
+                    vertex[1] + radius * Math.sin(theta),
+                  ))
+                }
+              }
+
+              const color = getRenderColor(item.id, angle.color || '', '#2563EB')
+              const label = `${angle.label} = ${angle.right_angle ? 90 : Math.round(angle.angle_degrees * 10) / 10}°`
+              const labelPoint = toCanvasPoint(
+                vertex[0] + (ux + vx) * radius * 0.75,
+                vertex[1] + (uy + vy) * radius * 0.75,
+              )
+              return <React.Fragment key={item.id}>
+                <Line points={marker} stroke={color} strokeWidth={isSelected ? 3.5 : 2}
+                  lineCap="round" lineJoin="round" hitStrokeWidth={12}
+                  onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
+                <Text x={labelPoint[0] + 4} y={labelPoint[1] - 16} text={label}
+                  fontSize={12} fill={color} onClick={(e) => handleObjectClick(e, item.id)} />
+              </React.Fragment>
+            }
+
+            if (item.object.kind === 'equal_segments') {
+              const marks = item.object as EqualSegmentsObject
+              const color = getRenderColor(item.id, marks.color || '', '#2563EB')
+              return <React.Fragment key={item.id}>
+                {marks.segments.map((segment, segmentIndex) => {
+                  const start = marks.coordinates[segment.start]
+                  const end = marks.coordinates[segment.end]
+                  if (!start || !end || start.length < 2 || end.length < 2) return null
+                  const dx = end[0] - start[0]
+                  const dy = end[1] - start[1]
+                  const length = Math.hypot(dx, dy)
+                  if (!length) return null
+                  const perpendicular: [number, number] = [-dy / length, dx / length]
+                  const ticks: number[] = []
+                  const count = Math.max(1, Math.min(3, marks.mark_count || 1))
+                  for (let index = 0; index < count; index++) {
+                    const along = 0.5 + (index - (count - 1) / 2) * 0.12
+                    const middleX = start[0] + dx * along
+                    const middleY = start[1] + dy * along
+                    const halfTick = 0.16
+                    ticks.push(
+                      ...toCanvasPoint(middleX - perpendicular[0] * halfTick, middleY - perpendicular[1] * halfTick),
+                      ...toCanvasPoint(middleX + perpendicular[0] * halfTick, middleY + perpendicular[1] * halfTick),
+                    )
+                  }
+                  return <Line key={`${segment.start}-${segment.end}-${segmentIndex}`} points={ticks}
+                    stroke={color} strokeWidth={isSelected ? 3.5 : 2.25}
+                    hitStrokeWidth={12} onClick={(e) => handleObjectClick(e, item.id)}
+                    onTap={(e) => handleObjectClick(e, item.id)} />
+                })}
+              </React.Fragment>
             }
 
             // ---------------- CIRCLE ----------------

@@ -79,6 +79,16 @@ export const useAppStore = create<AppState>(
 
     canvasMode: '2d',
 
+    selectedObject: {
+      id: null,
+      x: null,
+      y: null,
+    },
+
+    setSelectedObject: (selection) => {
+      set({ selectedObject: selection })
+    },
+
 
     // ========================================================
     // SEND MESSAGE
@@ -344,6 +354,10 @@ export const useAppStore = create<AppState>(
 
         ],
 
+        canvasMode: objects.some(object => object.dimension === '3d')
+          ? '3d'
+          : state.canvasMode,
+
       }))
 
     },
@@ -457,20 +471,10 @@ export const useAppStore = create<AppState>(
     // REMOVE ONE OBJECT
     // ========================================================
 
-    removeObject: (
-      id: string
-    ) => {
-
-      set(state => ({
-
-        canvasObjects:
-          state.canvasObjects.filter(
-            canvasObject =>
-              canvasObject.id !== id
-          ),
-
-      }))
-
+    removeObject: async (id: string, message?: string) => {
+      await get().sendMessage(
+        message ?? `hãy xóa đối tượng "${id}" khỏi canvas`,
+      )
     },
 
 

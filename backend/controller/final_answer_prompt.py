@@ -246,41 +246,40 @@ Ví dụ bảng thống kê tổng quát:
 | $a$ | $2$ | Dữ kiện |
 | $b$ | $-3$ | Kết quả trung gian |
 
-# ...existing code...
-
 ==================================================
 IX. BÀI TOÁN XÁC SUẤT
 ==================================================
 
-1. **Phân tích đề bài**:
-   - Xác định không gian mẫu (ký hiệu $\Omega$) và số phần tử của nó.
-   - Xác định biến cố cần tính xác suất và số phần tử của biến cố đó.
+Trước khi tính, phải xác định chính xác cơ chế ngẫu nhiên; tuyệt đối không tự
+giả sử các kết quả đồng khả năng, độc lập, có/không hoàn lại hoặc có thứ tự.
 
-2. **Công thức xác suất cơ bản**:
-   - Nếu các phần tử trong không gian mẫu đều có khả năng xảy ra như nhau:
-     $$P(A) = \dfrac{\text{số phần tử của biến cố } A}{\text{số phần tử của } \Omega}$$
-   - Nếu không, sử dụng định nghĩa xác suất phù hợp (xác suất có điều kiện, xác suất tổng, xác suất nhân...).
+1. Nêu rõ phép thử, không gian mẫu $\Omega$, cách gán xác suất cho kết quả,
+   biến cố cần tìm và điều kiện đã biết. Dùng $P(A)=|A|/|\Omega|$ chỉ khi
+   mọi kết quả trong không gian mẫu hữu hạn thực sự đồng khả năng.
+2. Với chọn đồng thời $k$ vật không hoàn lại, thường đếm bằng tổ hợp
+   $\binom{n}{k}$; với rút lần lượt và thứ tự quan trọng, dùng quy tắc nhân
+   hoặc chỉnh hợp. Phải kiểm tra tử số và mẫu số dùng cùng một quy ước thứ tự.
+3. Với rút không hoàn lại, xác suất các lượt thường phụ thuộc nhau; cập nhật
+   số vật sau mỗi lượt. Với hoàn lại, thành phần hộp không đổi; chỉ kết luận
+   độc lập khi phép thử và biến cố cho phép.
+4. Với xác suất có điều kiện, ghi rõ điều kiện $P(B)>0$ và dùng
+   $P(A\mid B)=P(A\cap B)/P(B)$. Không thay $P(A\mid B)$ bằng $P(A)$ nếu
+   chưa chứng minh độc lập. Với Bayes, xác suất toàn phần hoặc biến cố đối,
+   nêu các biến cố phân hoạch và kiểm tra tổng xác suất.
+5. Viết phép đếm/công thức trước khi rút gọn; giữ phân số chính xác đến đáp số
+   rồi mới đổi sang số thập phân nếu hữu ích. Cuối cùng kiểm tra xác suất nằm
+   trong $[0,1]$, trường hợp biên và xem tử số có đếm đúng biến cố hay không.
+   Nếu dữ kiện chưa xác định phân phối, nói rõ thiếu giả thiết thay vì đoán.
 
-3. **Các bước giải chi tiết**:
-   - **Bước 1**: Mô tả không gian mẫu và biến cố bằng lời và ký hiệu toán học.
-   - **Bước 2**: Tính số phần tử của không gian mẫu và biến cố (nếu cần, sử dụng tổ hợp, chỉnh hợp, hoán vị...).
-   - **Bước 3**: Áp dụng công thức xác suất để tính toán.
-   - **Bước 4**: Kiểm tra lại kết quả và giải thích ý nghĩa.
-
-4. **Lưu ý**:
-   - Khi đề bài có nhiều biến cố, hãy xét từng biến cố một cách độc lập trước khi kết hợp.
-   - Nếu bài toán yêu cầu xác suất có điều kiện, sử dụng công thức:
-     $$P(A|B) = \dfrac{P(A \cap B)}{P(B)}$$
-     với điều kiện $P(B) > 0$.
-   - Với bài toán liên quan đến biến ngẫu nhiên, nêu rõ hàm phân phối, kỳ vọng, phương sai nếu cần.
-
-5. **Ví dụ minh họa**:
-   - Đề bài: Một hộp có 3 bi đỏ và 2 bi xanh. Lấy ngẫu nhiên 2 bi. Tính xác suất để cả 2 bi đều đỏ.
-   - Hướng giải:
-     - Không gian mẫu: $\Omega$ là tập hợp tất cả các cách chọn 2 bi từ 5 bi, $|\Omega| = \binom{5}{2} = 10$.
-     - Biến cố $A$: "Cả 2 bi đều đỏ", $|A| = \binom{3}{2} = 3$.
-     - Xác suất: $$P(A) = \dfrac{|A|}{|\Omega|} = \dfrac{3}{10}.$$
-     - Kết luận: Xác suất để cả 2 bi đều đỏ là $0.3$.
+Ví dụ kiểm tra:
+Hộp có 3 bi đỏ, 2 bi xanh; rút đồng thời 2 bi không hoàn lại. Xác suất lấy
+đúng 1 bi đỏ là
+$$
+P(A)=\frac{\binom{3}{1}\binom{2}{1}}{\binom{5}{2}}
+=\frac{6}{10}=\frac{3}{5}.
+$$
+Nếu đã biết viên đầu tiên đỏ, xác suất viên thứ hai đỏ là $2/4=1/2$,
+không phải $3/5$, vì số bi đỏ còn lại đã thay đổi.
 
 """
 

@@ -94,6 +94,9 @@ Chỉ sử dụng những operation sau:
 - draw_sphere
 - draw_cone
 - draw_plane
+- draw_polygon_3d (vẽ một mặt/đa giác phẳng trong không gian 3D)
+- draw_angle (vẽ góc; dùng right_angle=true cho ký hiệu góc vuông)
+- draw_equal_segments (đánh dấu các đoạn bằng nhau bằng cùng số vạch)
 - draw_polygon_2d ( khi yêu càu vẽ các hình phẳng 2d như tam giác, hình vuông, hình chữ nhật, hình thang, hình bình hành, hình tròn, elip, đa giác đều, đa giác bất kỳ,...)
 - remove_object (dùng khi người dùng hoặc hệ thống yêu cầu xóa bất kỳ hoặc tất  các đối tượng ví dụ các từ hay kèm của người dùng như là : xóa, xóa bỏ , hủy bỏ ,xóa đi,....)
 - update_object( dùng khi người dùng hoặc hệ thống yêu cầu cập nhật di chuyển đối tượng từ vị trị này qua vị trí khác)
@@ -101,6 +104,43 @@ Chỉ sử dụng những operation sau:
 - clarify
 
 Không tự tạo operation mới nếu backend chưa hỗ trợ.( tùy thuộc vào bài toán chọn những OPERATION tướng ứng ở trên )
+
+Nếu người dùng vừa yêu cầu giải/tính/chứng minh một bài toán vừa cần hình
+minh họa, plan PHẢI có cả một task operation "answer" và một hoặc nhiều task
+vẽ hình phù hợp. Không được chọn answer thay cho task vẽ hoặc ngược lại.
+Task answer mô tả phần cần giải; backend tạo lời giải cuối sau khi thực thi
+các task vẽ. Không đưa task answer vào dependency của task vẽ.
+
+Với hình học không gian không phải khối đặc (ví dụ mặt phẳng cắt ba trục
+tạo tam giác ABC), dùng draw_polygon_3d để vẽ đúng mặt hữu hạn đó; không dùng
+draw_plane nếu hình dạng/hướng của mặt phẳng không được biểu diễn đúng.
+Dùng draw_point cho các điểm đã cho cần nhìn thấy.
+
+Nếu hình được xác định bằng tọa độ 3 thành phần [x,y,z], hoặc đề yêu cầu
+vẽ hình trong không gian Oxyz, bắt buộc dùng operation 3D phù hợp
+(draw_polygon_3d cho tam giác/đa giác phẳng, draw_pyramid cho hình chóp);
+không dùng draw_polygon_2d chỉ vì tên hình là tam giác/hình vuông.
+
+Khi đề nêu góc vuông hoặc các đoạn bằng nhau, ngoài việc bảo đảm tọa độ và
+constraints đúng, hãy tạo task draw_angle với right_angle=true hoặc task
+draw_equal_segments để hiển thị ký hiệu tương ứng. Chỉ vẽ ký hiệu khi tọa độ
+thực sự thỏa quan hệ đó; ký hiệu không thay thế bước kiểm tra.
+
+Khi đề cho đường thẳng SA vuông góc với mặt phẳng (ABC) tại A, hãy chọn
+tọa độ sao cho SA vuông góc với các vectơ AB và AC, đồng thời tạo hai task
+draw_angle để đánh dấu ∠SAB và ∠SAC (input.points lần lượt ["S","A","B"] và
+["S","A","C"], right_angle=true). Cả hai task phải dùng cùng tọa độ 3D đã
+dùng để vẽ hình; không chỉ đánh dấu góc vuông của riêng đáy.
+
+Schema các operation mới:
+- draw_polygon_3d: input.vertices là danh sách tên đỉnh theo thứ tự quanh mặt;
+  input.coordinates là map tên điểm → [x,y,z]. Mọi đỉnh phải đồng phẳng.
+- draw_angle: input.points là đúng ba tên theo thứ tự [A,B,C] (đỉnh góc là B);
+  input.coordinates phải có đủ cả ba điểm. Dùng right_angle=true cho góc vuông,
+  hoặc angle_degrees cho số đo góc đã biết.
+- draw_equal_segments: input.segments là danh sách ít nhất hai cặp tên điểm,
+  ví dụ [["A","B"],["C","D"]]; input.coordinates phải có đủ các đầu mút và
+  các đoạn phải thực sự bằng nhau. mark_count (1–3) chọn số vạch tương ứng.
 
 Nếu cần vẽ một hình phức tạp, đi theo từng bước nhỏ hãy sử dụng operation cơ bản tương ứng
 mà backend đã hỗ trợ. Không giả định rằng một operation chưa
@@ -117,6 +157,7 @@ CÁC PROBLEM_TYPES ĐƯỢC HỖ TRỢ
 - geometry
 - algebra
 - calculus
+- probability
 - other
 - ambiguous
 III. PHÂN TÍCH STATE HIỆN TẠI
@@ -1395,15 +1436,83 @@ cho trước, là điểm tự do, hoặc backend chưa tích hợp construction
 draw_point và draw_line phải khớp schema backend thực tế.
 
 Nguyên tắc chia task rút ra từ các ví dụ:
-- Câu a: vẽ hình gốc bằng một operation phù hợp (draw_triangle, draw_pyramid...).
+- Câu a: vẽ hình gốc bằng một operation phù hợp (draw_polygon_2d, draw_pyramid...).
 - Câu b, c...: KHÔNG vẽ lại hình gốc. Tái sử dụng điểm trong canvas_objects,
   chỉ dựng thêm những gì còn thiếu (điểm mới, đoạn mới, giao điểm, thiết diện).
 - Điểm mới phải được tạo (draw_point) TRƯỚC các đoạn thẳng dùng điểm đó (draw_line),
   thể hiện bằng depends_on.
 - Một hình phức tạp (thiết diện, đường cao, đường chéo...) phải tách thành các task nhỏ
-  chỉ dùng operation backend đã hỗ trợ: draw_point, draw_line, draw_triangle...
+  chỉ dùng operation backend đã hỗ trợ: draw_point, draw_line, draw_polygon_2d,
+  draw_polygon_3d...
 - Đoạn thẳng chưa có sẵn trên canvas (ví dụ đường chéo đáy BD) phải được vẽ thêm.
 - Ràng buộc đặt ở task cuối cùng mà tất cả điểm/đoạn liên quan đã tồn tại.
+
+==================================================
+FEW-SHOT: BÀI TOÁN KHÔNG GIAN VỪA GIẢI VỪA VẼ MẶT PHẲNG
+==================================================
+
+INPUT:
+{"user_message":"Trong không gian với hệ trục tọa độ Oxyz, mặt phẳng (P): bcx + acy + abz - abc = 0 qua điểm M(2; 4; 8) và cắt các tia Ox, Oy, Oz lần lượt tại A, B, C sao cho OA = 2OB = 4OC. Tính T = a + b + c.","summary":"","recent_turns":[],"canvas_objects":{}}
+
+OUTPUT:
+{
+  "problem_type": "geometry",
+  "domains": ["geometry", "algebra"],
+  "needs_visual": true,
+  "visual_dimension": "3d",
+  "needs_symbolic_compute": true,
+  "needs_object_reference": false,
+  "target_ref": null,
+  "ambiguous": false,
+  "mode": "plan",
+  "tasks": [
+    {
+      "id": "answer_1",
+      "domain": "other",
+      "operation": "answer",
+      "depends_on": [],
+      "input": {"question": "Tính T = a + b + c từ các dữ kiện của đề."}
+    },
+    {
+      "id": "draw_face",
+      "domain": "geometry",
+      "operation": "draw_polygon_3d",
+      "depends_on": [],
+      "input": {
+        "vertices": ["A", "B", "C"],
+        "coordinates": {
+          "A": [42, 0, 0],
+          "B": [0, 21, 0],
+          "C": [0, 0, 10.5]
+        },
+        "label": "Mặt phẳng (P) cắt các trục tại A, B, C",
+        "style": {"color": "#2563eb", "fill_color": "#93c5fd"}
+      }
+    },
+    {
+      "id": "draw_given_point",
+      "domain": "geometry",
+      "operation": "draw_point",
+      "depends_on": ["draw_face"],
+      "input": {
+        "name": "M",
+        "coordinates": {"M": [2, 4, 8]},
+        "coordinate_control": {
+          "point_M": {"source": "user", "fixed": false, "editable": true}
+        }
+      }
+    }
+  ],
+  "notes": [
+    "OA=a, OB=b, OC=c; OA=2OB=4OC suy ra a=2b=4c.",
+    "Thay M vào phương trình cho 2/a+4/b+8/c=1; do b=a/2, c=a/4 suy ra a=42, b=21, c=10.5 và T=73.5.",
+    "Các tọa độ A, B, C, M cùng thuộc mặt phẳng đã cho."
+  ]
+}
+
+Bài học: đề vừa yêu cầu tính vừa mô tả một hình không gian thì phải giữ task
+answer cùng các task vẽ trong plan. Không tạo một khối chóp giả để biểu diễn
+mặt phẳng; dùng draw_polygon_3d cho tam giác ABC và draw_point cho M.
 
 ==================================================
 VÍ DỤ 0: FEW-SHOT DÙNG constructions CHO ĐIỂM PHỤ THUỘC
@@ -1571,13 +1680,13 @@ OUTPUT:
 
       "domain": "geometry",
 
-      "operation": "draw_triangle",
+      "operation": "draw_polygon_2d",
 
       "depends_on": [],
 
       "input": {
         "role": "original",
-        "style": {"color": "2563eb", "line_style": "solid"},
+        "style": {"color": "#2563eb", "line_style": "solid"},
 
         "vertices": ["A", "B", "C"],
 
@@ -2001,7 +2110,8 @@ VÍ DỤ 5: 3D, câu c, thiết diện (việc lớn chia thành nhiều task nh
 
 --------------------------------------------------
 
-Thiết diện là tứ giác nên không dùng draw_triangle; tách thành điểm và các cạnh.
+Thiết diện là một đa giác phẳng 3D: dùng draw_polygon_3d khi đã có đủ tọa độ
+đồng phẳng; nếu thiếu tọa độ để xác định hình thì dựng các điểm/đường phụ trước.
 
 
 
