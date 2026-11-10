@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 from .llm_client import LLMClient, LLMClientError
@@ -46,6 +47,135 @@ ANSWER_REQUEST_PATTERN = re.compile(
 
 class PlanValidationError(ValueError):
     """Raised when the generated plan does not follow the expected contract."""
+
+
+def _reference_key(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = unicodedata.normalize("NFD", value.casefold())
+    normalized = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+    normalized = re.sub(r"[^a-z0-9']+", " ", normalized)
+    ignored = {
+        "diem", "duong", "thang", "doan", "hinh", "tam", "giac",
+        "mat", "phang", "doi", "tuong", "vua", "ve", "moi", "tao",
+    }
+    return " ".join(word for word in normalized.split() if word not in ignored)
+
+
+def _resolve_object_reference(reference: Any, message: str, state: Dict[str, Any]) -> tuple[str | None, list[str]]:
+    objects = state.get("canvas_objects") or {}
+    if not isinstance(objects, dict) or not objects:
+        return None, []
+
+    ref = reference if isinstance(reference, str) else ""
+    raw_context = unicodedata.normalize("NFD", f"{ref} {message}".casefold())
+    raw_context = "".join(char for char in raw_context if unicodedata.category(char) != "Mn")
+    recent_pattern = r"\b(vua ve|moi ve|vua tao|moi tao|hinh nay|duong nay|diem nay|doi tuong nay|no|do|ay|it|that|this|last|previous)\b"
+    latest_reference = re.search(recent_pattern, raw_context)
+    focus_id = state.get("focus_id")
+    focus_object = objects.get(focus_id)
+    expected_kind = (
+        "point" if re.search(r"\bdiem\b", raw_context)
+        else "line" if re.search(r"\bduong\b", raw_context)
+        else None
+    )
+    focus_is_valid = (
+        isinstance(focus_object, dict)
+        and (expected_kind is None or focus_object.get("kind") == expected_kind)
+    )
+
+    if ref in objects:
+        return ref, []
+
+    key = _reference_key(ref)
+
+    kind_filter = None
+    raw_ref = unicodedata.normalize("NFD", ref.casefold())
+    raw_ref = "".join(char for char in raw_ref if unicodedata.category(char) != "Mn")
+    explicit_recent_reference = re.search(recent_pattern, raw_ref)
+    if re.search(r"\bduong tron\b", raw_ref):
+        kind_filter = {"circle"}
+    elif re.search(r"\bdiem\b", raw_ref):
+        kind_filter = {"point"}
+    elif re.search(r"\bduong\b", raw_ref):
+        kind_filter = {"line"}
+    elif re.search(r"\bmat phang\b", raw_ref):
+        kind_filter = {"plane"}
+    elif re.search(r"\btam giac\b|\bda giac\b", raw_ref):
+        kind_filter = {"polygon"}
+
+    matches = []
+    if key:
+        for object_id, obj in objects.items():
+            if not isinstance(obj, dict):
+                continue
+            if kind_filter and obj.get("kind") not in kind_filter:
+                continue
+            aliases = [object_id, obj.get("id"), obj.get("label"), obj.get("name")]
+            point_names = obj.get("point_names")
+            if isinstance(point_names, (list, tuple)):
+                aliases.append("".join(str(name) for name in point_names))
+            vertices = obj.get("vertex_order") or obj.get("vertices")
+            if isinstance(vertices, (list, tuple)):
+                aliases.append("".join(str(name) for name in vertices))
+            elif isinstance(vertices, dict):
+                aliases.append("".join(str(name) for name in vertices))
+            if any(_reference_key(alias) == key for alias in aliases if alias is not None):
+                matches.append(object_id)
+        if len(matches) == 1:
+            return matches[0], []
+
+    if latest_reference and focus_is_valid and (not key or explicit_recent_reference):
+        return focus_id, []
+    return None, matches
+
+
+def resolve_plan_references(
+    plan: Dict[str, Any],
+    user_message: str,
+    state: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Resolve unambiguous update/delete targets; never guess between canvas objects."""
+    state = state or {}
+    updated = deepcopy(plan)
+    unresolved = []
+    for task in updated.get("tasks", []):
+        if task.get("operation") not in {"update_object", "remove_object"}:
+            continue
+        task_input = task.setdefault("input", {})
+        reference = (
+            task.get("object_id")
+            or task_input.get("object_id")
+            or task_input.get("target_id")
+            or task_input.get("target_ref")
+            or updated.get("target_ref")
+        )
+        resolved, candidates = _resolve_object_reference(reference, user_message, state)
+        if resolved:
+            task["object_id"] = resolved
+            task_input["object_id"] = resolved
+        else:
+            unresolved.append((reference, candidates))
+
+    if unresolved:
+        labels = []
+        objects = state.get("canvas_objects") or {}
+        for object_id, obj in objects.items():
+            if isinstance(obj, dict):
+                labels.append(f"{obj.get('label', obj.get('kind', 'đối tượng'))} ({object_id})")
+        choices = ", ".join(labels[:8]) or "canvas hiện đang trống"
+        updated["ambiguous"] = True
+        updated["notes"] = [
+            f"Mình chưa xác định chắc chắn đối tượng cần thao tác. Bạn muốn chọn đối tượng nào? Hiện có: {choices}."
+        ]
+        updated["tasks"] = [{
+            "id": "clarify_target",
+            "domain": "other",
+            "operation": "clarify",
+            "depends_on": [],
+            "input": {},
+        }]
+    return updated
 
 
 def ensure_answer_task(plan: Dict[str, Any], user_message: str) -> Dict[str, Any]:
@@ -198,6 +328,7 @@ class Orchestrator:
             summary=state.get("summary", ""),
             recent_turns=state.get("recent_turns", []),
             canvas_objects=state.get("canvas_objects", {}),
+            geometry_model=state.get("geometry_model", {}),
         )
 
         raw_plan = self.llm_client.generate_json(
@@ -205,10 +336,13 @@ class Orchestrator:
             user_prompt=prompt,
             temperature=0.2,
         )
-        print("++++++++++++++++",raw_plan)
         if isinstance(raw_plan, dict):
             raw_plan = ensure_answer_task(raw_plan, user_message)
-        return validate_plan(raw_plan)
+        return resolve_plan_references(
+            validate_plan(raw_plan),
+            user_message,
+            state,
+        )
 
 
 def create_plan(

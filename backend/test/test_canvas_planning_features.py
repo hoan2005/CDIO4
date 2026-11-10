@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 from controller import xuly_chatbot
 from controller.xuly_chatbot import _collect_state_points, _is_canvas_delete_request
 from controller.execution_controller import ExecutionController
-from math_engine.draw.draw_2D_3D import draw_angle, draw_equal_segments
+from math_engine.draw.draw_2D_3D import draw_angle, draw_equal_segments, draw_line
 from math_engine.draw.draw_3D import draw_polygon_3d
 from orchestrator.orchestrator import (
     ALLOWED_OPERATIONS,
@@ -19,6 +19,19 @@ from state.state_manager import StateManager
 
 
 class CanvasPlanningFeatureTests(unittest.TestCase):
+    def test_draw_line_distinguishes_infinite_lines_from_segments(self):
+        line_input = {
+            "points": ["A", "B"],
+            "coordinates": {"A": [0, 0], "B": [3, 4]},
+        }
+        segment = draw_line(line_input)
+        infinite_line = draw_line({**line_input, "extent": "infinite"})
+
+        self.assertEqual(segment["extent"], "segment")
+        self.assertEqual(infinite_line["extent"], "infinite")
+        with self.assertRaisesRegex(ValueError, "extent phải là"):
+            draw_line({**line_input, "extent": "ray"})
+
     def test_3d_polygon_is_validated_and_keeps_vertex_order(self):
         polygon = draw_polygon_3d({
             "vertices": ["A", "B", "C"],
@@ -115,6 +128,8 @@ class CanvasPlanningFeatureTests(unittest.TestCase):
         self.assertIn('["S","A","B"]', ORCHESTRATOR_SYSTEM_PROMPT)
         self.assertIn('["S","A","C"]', ORCHESTRATOR_SYSTEM_PROMPT)
         self.assertIn("right_angle=true", ORCHESTRATOR_SYSTEM_PROMPT)
+        self.assertIn('extent="infinite"', ORCHESTRATOR_SYSTEM_PROMPT)
+        self.assertIn('extent="segment"', ORCHESTRATOR_SYSTEM_PROMPT)
 
     def test_new_draw_tasks_execute_and_update_canvas_state(self):
         manager = StateManager()

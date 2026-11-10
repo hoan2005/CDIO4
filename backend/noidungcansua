@@ -1,8 +1,2 @@
-voi bai toan Vẽ tam giác (ABC) trong không gian với (A(4,0,0)), (B(0,2,0)), (C(0,0,1)). co vấn đề nó vẫn đang vẽ trên 2d không phải 3d
-
-
-. Hình chóp — nhiều phép tính và hình phụ
-Cho hình chóp (S.ABC), đáy (ABC) là tam giác vuông tại (A), (AB=3), (AC=4), (SA\perp(ABC)), (SA=5).
-a) Tính thể tích hình chóp.
-b) Tính độ dài (SC).
-c) Vẽ hình chóp, đánh dấu góc vuông tại (A) và các cạnh (AB, AC, SA) theo đúng dữ kiện. van de nó chỉ mới vẽ góc vuông cho tam giác, hình vuông , chứ nếu như bài này SA vuông góc mặt phẳng nó lại chưa ký hiệu vuông góc giữu SA và với AB vad AD
+xoa label vuong goc
+neu xoa 1 doi tuong co rang buoc thi xoa het taon bo no va cac doi tuong no phu thuoc va phu thuoc vao no

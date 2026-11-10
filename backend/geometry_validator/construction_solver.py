@@ -26,10 +26,17 @@ Các phép dựng hiện hỗ trợ:
 - point_on_line: P = A + t(B - A), params.t.
 - perpendicular_foot: hình chiếu vuông góc của P lên đường thẳng AB.
   depends_on = ["P", "A", "B"].
+- plane_perpendicular_foot: hình chiếu vuông góc của P lên mặt phẳng ABC trong 3D.
+  depends_on = ["P", "A", "B", "C"].
 - line_intersection: giao điểm của hai đường thẳng trong 2D.
   depends_on = ["A", "B", "C", "D"], hai đường AB và CD.
-- tangent_point: tiếp điểm từ điểm ngoài D đến đường tròn tâm O, trong 2D.
-  depends_on = ["O", "D"], params.radius và params.which = "upper"|"lower".
+- midpoint: trung điểm trong cả 2D và 3D.
+- parallel_point: điểm trên đường qua P song song AB; depends_on = ["A", "B", "P"].
+- perpendicular_point: điểm trên đường qua P vuông góc AB; trong 3D cần thêm
+  điểm tham chiếu R để xác định mặt phẳng chứa đường vuông góc.
+- angle_bisector: điểm trên phân giác góc ABC; depends_on = ["A", "B", "C"].
+- tangent_point: tiếp điểm từ điểm ngoài D đến đường tròn tâm O; trong 3D
+  cần params.plane_normal để xác định mặt phẳng đường tròn.
 
 Lưu ý:
 - Điểm do người dùng cung cấp được bảo vệ; điểm do LLM/state tạo ra có thể được tính lại nếu có construction.
@@ -64,9 +71,13 @@ class ConstructionSolver:
             "midpoint": self._midpoint,
             "point_on_line": self._point_on_line,
             "perpendicular_foot": self._perpendicular_foot,
+            "plane_perpendicular_foot": self._plane_perpendicular_foot,
             "line_intersection": self._line_intersection,
             # Tương thích các prompt/plan cũ từng đặt tên phép dựng là "intersection".
             "intersection": self._line_intersection,
+            "parallel_point": self._parallel_point,
+            "perpendicular_point": self._perpendicular_point,
+            "angle_bisector": self._angle_bisector,
             "tangent_point": self._tangent_point,
         }
 
@@ -398,6 +409,16 @@ class ConstructionSolver:
         return dimension
 
     @staticmethod
+    def _cross3(a: Sequence[float], b: Sequence[float]) -> Tuple[float, float, float]:
+        if len(a) != 3 or len(b) != 3:
+            raise ConstructionError("Tích có hướng yêu cầu hai vector 3D.")
+        return (
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        )
+
+    @staticmethod
     def _midpoint(points: List[Point], params: Dict[str, Any]) -> Point:
         if len(points) != 2:
             raise ConstructionError("midpoint cần đúng 2 điểm: A, B.")
@@ -431,6 +452,97 @@ class ConstructionSolver:
         t = sum(x * y for x, y in zip(ap, ab)) / denom
         return tuple(x + t * v for x, v in zip(a, ab))
 
+    def _plane_perpendicular_foot(self, points: List[Point], params: Dict[str, Any]) -> Point:
+        if len(points) != 4 or self._same_dimension(points) != 3:
+            raise ConstructionError("plane_perpendicular_foot cần [P, A, B, C] trong 3D.")
+        p, a, b, c = points
+        ab = tuple(b[i] - a[i] for i in range(3))
+        ac = tuple(c[i] - a[i] for i in range(3))
+        normal = self._cross3(ab, ac)
+        normal_sq = sum(value * value for value in normal)
+        if normal_sq <= self.tolerance ** 2:
+            raise ConstructionError("Không thể chiếu lên mặt phẳng vì A, B, C thẳng hàng.")
+        distance = sum((p[i] - a[i]) * normal[i] for i in range(3)) / normal_sq
+        return tuple(p[i] - distance * normal[i] for i in range(3))
+
+    @staticmethod
+    def _positive_length(params: Dict[str, Any]) -> float:
+        length = params.get("length", 1.0)
+        if isinstance(length, bool):
+            raise ConstructionError("params.length phải là số dương.")
+        try:
+            length = float(length)
+        except (TypeError, ValueError) as exc:
+            raise ConstructionError("params.length phải là số dương.") from exc
+        if not isfinite(length) or length <= 0:
+            raise ConstructionError("params.length phải là số hữu hạn lớn hơn 0.")
+        return length
+
+    def _parallel_point(self, points: List[Point], params: Dict[str, Any]) -> Point:
+        if len(points) != 3:
+            raise ConstructionError("parallel_point cần [A, B, P].")
+        dimension = self._same_dimension(points)
+        a, b, through = points
+        direction = tuple(b[i] - a[i] for i in range(dimension))
+        magnitude = sqrt(sum(value * value for value in direction))
+        if magnitude <= self.tolerance:
+            raise ConstructionError("Không thể dựng đường song song vì A và B trùng nhau.")
+        sign = params.get("sign", 1)
+        if sign not in (-1, 1):
+            raise ConstructionError("params.sign phải là 1 hoặc -1.")
+        length = self._positive_length(params)
+        return tuple(through[i] + sign * length * direction[i] / magnitude for i in range(dimension))
+
+    def _perpendicular_point(self, points: List[Point], params: Dict[str, Any]) -> Point:
+        if len(points) not in (3, 4):
+            raise ConstructionError("perpendicular_point cần [A, B, P] trong 2D hoặc [A, B, P, R] trong 3D.")
+        dimension = self._same_dimension(points)
+        a, b, through = points[:3]
+        direction = tuple(b[i] - a[i] for i in range(dimension))
+        magnitude = sqrt(sum(value * value for value in direction))
+        if magnitude <= self.tolerance:
+            raise ConstructionError("Không thể dựng đường vuông góc vì A và B trùng nhau.")
+
+        if dimension == 2:
+            perpendicular = (-direction[1], direction[0])
+        elif dimension == 3 and len(points) == 4:
+            reference = tuple(points[3][i] - through[i] for i in range(3))
+            perpendicular = self._cross3(direction, reference)
+            if sqrt(sum(value * value for value in perpendicular)) <= self.tolerance:
+                raise ConstructionError("Điểm tham chiếu R không xác định được hướng vuông góc trong 3D.")
+        else:
+            raise ConstructionError("Trong 3D, perpendicular_point cần điểm tham chiếu R để xác định hướng.")
+
+        norm = sqrt(sum(value * value for value in perpendicular))
+        length = self._positive_length(params)
+        sign = params.get("sign", 1)
+        if sign not in (-1, 1):
+            raise ConstructionError("params.sign phải là 1 hoặc -1.")
+        return tuple(through[i] + sign * length * perpendicular[i] / norm for i in range(dimension))
+
+    def _angle_bisector(self, points: List[Point], params: Dict[str, Any]) -> Point:
+        if len(points) != 3:
+            raise ConstructionError("angle_bisector cần [A, B, C] với B là đỉnh góc.")
+        dimension = self._same_dimension(points)
+        a, vertex, c = points
+        ba = tuple(a[i] - vertex[i] for i in range(dimension))
+        bc = tuple(c[i] - vertex[i] for i in range(dimension))
+        length_a = sqrt(sum(value * value for value in ba))
+        length_c = sqrt(sum(value * value for value in bc))
+        if length_a <= self.tolerance or length_c <= self.tolerance:
+            raise ConstructionError("Không thể dựng phân giác khi một cạnh góc có độ dài bằng 0.")
+        kind = params.get("kind", "internal")
+        if kind not in {"internal", "external"}:
+            raise ConstructionError("params.kind phải là 'internal' hoặc 'external'.")
+        direction = tuple(
+            ba[i] / length_a + (1 if kind == "internal" else -1) * bc[i] / length_c
+            for i in range(dimension)
+        )
+        norm = sqrt(sum(value * value for value in direction))
+        if norm <= self.tolerance:
+            raise ConstructionError("Không xác định được hướng phân giác của góc này.")
+        length = self._positive_length(params)
+        return tuple(vertex[i] + length * direction[i] / norm for i in range(dimension))
 
     def _line_intersection(
         self,
@@ -597,14 +709,46 @@ class ConstructionSolver:
     def _tangent_point(self, points: List[Point], params: Dict[str, Any]) -> Point:
         if len(points) != 2:
             raise ConstructionError("tangent_point cần [O, D]: tâm đường tròn và điểm ngoài.")
-        if self._same_dimension(points) != 2:
-            raise ConstructionError("tangent_point hiện chỉ hỗ trợ hình học 2D.")
+        dimension = self._same_dimension(points)
+        if dimension not in (2, 3):
+            raise ConstructionError("tangent_point chỉ hỗ trợ hình học 2D hoặc 3D.")
         o, d = points
         if "radius" not in params:
             raise ConstructionError("tangent_point yêu cầu params.radius.")
         radius = float(params["radius"])
         if not isfinite(radius) or radius <= 0:
             raise ConstructionError("params.radius phải là số hữu hạn lớn hơn 0.")
+
+        if dimension == 3:
+            raw_normal = params.get("plane_normal")
+            if not isinstance(raw_normal, (list, tuple)) or len(raw_normal) != 3:
+                raise ConstructionError("tangent_point trong 3D cần params.plane_normal=[nx,ny,nz].")
+            normal = tuple(float(value) for value in raw_normal)
+            normal_length = sqrt(sum(value * value for value in normal))
+            if not isfinite(normal_length) or normal_length <= self.tolerance:
+                raise ConstructionError("params.plane_normal phải là vector khác 0.")
+            normal = tuple(value / normal_length for value in normal)
+            radial = tuple(d[i] - o[i] for i in range(3))
+            if abs(sum(radial[i] * normal[i] for i in range(3))) > self.tolerance * max(1.0, sqrt(sum(v*v for v in radial))):
+                raise ConstructionError("O và D phải nằm trong mặt phẳng đường tròn 3D.")
+            distance_sq = sum(value * value for value in radial)
+            radius_sq = radius * radius
+            if distance_sq <= radius_sq + self.tolerance:
+                raise ConstructionError("D phải nằm ngoài đường tròn để có hai tiếp tuyến thực phân biệt.")
+            cross = self._cross3(normal, radial)
+            factor = radius_sq / distance_sq
+            side = radius * sqrt(max(0.0, distance_sq - radius_sq)) / distance_sq
+            base = tuple(o[i] + factor * radial[i] for i in range(3))
+            candidates = [
+                tuple(base[i] + side * cross[i] for i in range(3)),
+                tuple(base[i] - side * cross[i] for i in range(3)),
+            ]
+            which = str(params.get("which", "first")).lower()
+            if which in {"upper", "first", "plus", "0"}:
+                return candidates[0]
+            if which in {"lower", "second", "minus", "1"}:
+                return candidates[1]
+            raise ConstructionError("params.which trong 3D phải là first/second hoặc plus/minus.")
 
         ox, oy = o
         dx, dy = d[0] - ox, d[1] - oy

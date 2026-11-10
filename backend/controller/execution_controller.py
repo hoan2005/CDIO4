@@ -3,6 +3,8 @@ from copy import deepcopy
 from typing import Any, Callable
 
 from math_engine.draw import draw_3D,draw_2D_3D,draw_2D
+from geometry_validator.construction_solver import ConstructionSolver
+from geometry_validator.geometry_model import object_points, recompute_dependents
 
 
 class ExecutionController:
@@ -270,9 +272,25 @@ class ExecutionController:
                 if point_name in coordinates:
                     updated["position"] = list(coordinates[point_name])
 
+            current_points = object_points(current)
+            changed_points = {
+                name: values
+                for name, values in object_points(updated).items()
+                if current_points.get(name) != values
+            }
+            objects = deepcopy(state.get("canvas_objects") or {})
+            objects[target_id] = updated
+            dependent_updates, _ = recompute_dependents(
+                objects,
+                changed_points,
+                ConstructionSolver(),
+            ) if changed_points else ({}, {})
+            updated = dependent_updates.pop(target_id, updated)
+            all_updates = [updated, *dependent_updates.values()]
+
             return {
                 "operation": "update_object",
-                "result": {"objects": [updated]},
+                "result": {"objects": all_updates},
             }
 
         # Xử lý xóa đối tượng.
@@ -364,18 +382,27 @@ class ExecutionController:
 
             # Hợp đồng API giả định:
             # remove_object(state, object_id) -> object đã xóa
-            removed = self.state_manager.remove_object(
-                state.get("conversation_id"), target_id
+            conversation_id = state.get("conversation_id")
+            dependent_ids = self.state_manager.get_dependent_object_ids(
+                conversation_id, target_id
             )
-
-            (state.get("canvas_objects") or {}).pop(target_id, None)
-            canvas_changes["remove"].append(target_id)
+            target_ids = [target_id, *dependent_ids]
+            removed = None
+            for object_id in target_ids:
+                if object_id not in (state.get("canvas_objects") or {}):
+                    continue
+                removed_object = self.state_manager.remove_object(conversation_id, object_id)
+                if object_id == target_id:
+                    removed = removed_object
+                (state.get("canvas_objects") or {}).pop(object_id, None)
+                canvas_changes["remove"].append(object_id)
 
             return {
                 "task_id": task["id"],
                 "status": "success",
                 "operation": operation,
                 "result": removed,
+                "removed_ids": canvas_changes["remove"][-len(target_ids):],
             }
 
         result = execution_result["result"]
@@ -397,6 +424,20 @@ class ExecutionController:
         for obj in objects:
             if not isinstance(obj, dict):
                 raise ValueError("Canvas object phải là dictionary.")
+
+            task_input = task.get("input") or {}
+            constructions = task.get("_construction_specs") or task_input.get("constructions")
+            if isinstance(constructions, dict) and constructions:
+                obj["constructions"] = deepcopy(constructions)
+            dependencies = {
+                name
+                for spec in (constructions or {}).values()
+                if isinstance(spec, dict)
+                for name in spec.get("depends_on", [])
+                if isinstance(name, str)
+            } if isinstance(constructions, dict) else set()
+            if dependencies:
+                obj["dependencies"] = sorted(dependencies)
 
             object_id = obj.get("id")
 

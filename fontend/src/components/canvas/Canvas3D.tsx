@@ -1,8 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, Html, Line } from '@react-three/drei'
-import { BufferGeometry, Float32BufferAttribute, ShapeUtils, Vector2 } from 'three'
+import {
+  BufferGeometry,
+  Float32BufferAttribute,
+  Plane,
+  Raycaster,
+  ShapeUtils,
+  Vector2,
+  Vector3,
+} from 'three'
 import type { CanvasObjectWithMeta } from '@/types'
+import {
+  getCanvasPointTargets,
+  type CanvasPointTarget,
+} from '@/utils/canvasPointTargets'
 
 interface Canvas3DProps {
   objects: CanvasObjectWithMeta[]
@@ -11,10 +23,18 @@ interface Canvas3DProps {
   // Parent should forward the supplied natural-language message to sendMessage().
   onRemoveObject?: (id: string, message?: string) => void
   onSendMessage?: (message: string) => void
+  onConnectPoints?: (start: string, end: string) => void
 }
 
 type P3 = [number, number, number]
 type AnyObject = Record<string, any>
+interface PointConnection {
+  start: CanvasPointTarget
+  pointer: [number, number]
+  preview: P3
+  dragging: boolean
+  targetName?: string
+}
 const SELECTED = '#9CA3AF'
 const DEFAULT = '#334155'
 
@@ -96,12 +116,46 @@ function normalize3(point: P3): P3 {
   const length = length3(point)
   return length ? scale3(point, 1 / length) : [0, 0, 0]
 }
+function vertexLabelPosition(point: P3, center: P3): P3 {
+  const direction = normalize3(subtract3(point, center))
+  const offset: P3 = length3(direction) ? direction : [1, 1, 1]
+  return add3(point, scale3(offset, .24))
+}
 function cross3(a: P3, b: P3): P3 {
   return [
     a[1] * b[2] - a[2] * b[1],
     a[2] * b[0] - a[0] * b[2],
     a[0] * b[1] - a[1] * b[0],
   ]
+}
+
+function VertexLabel({ name, point, center, color }: {
+  name: string
+  point: P3
+  center?: P3
+  color: string
+}) {
+  return <Html
+    position={center ? vertexLabelPosition(point, center) : add3(point, [.2, .2, .2])}
+    center
+    occlude={false}
+    style={{ pointerEvents: 'none', whiteSpace: 'nowrap' }}
+  >
+    <span style={{
+      display: 'inline-block',
+      padding: '3px 8px',
+      border: '1px solid #CBD5E1',
+      borderRadius: 7,
+      background: 'rgba(255,255,255,.96)',
+      boxShadow: '0 2px 6px rgba(15,23,42,.16)',
+      color,
+      fontSize: 12,
+      fontWeight: 700,
+      lineHeight: 1.2,
+    }}>
+      {name}
+    </span>
+  </Html>
 }
 
 function DeleteMenu({ position, onDelete }: { position: P3; onDelete: (e: any) => void }) {
@@ -128,8 +182,87 @@ function FitCamera({ center, distance }: { center: P3; distance: number }) {
   return null
 }
 
-function RenderObject({ item, selected, onSelect, onRemove }: {
+function PointConnectionEvents({
+  connection,
+  targets,
+  onMove,
+  onFinish,
+}: {
+  connection: PointConnection | null
+  targets: CanvasPointTarget[]
+  onMove: (pointer: [number, number], preview: P3, targetName?: string) => void
+  onFinish: (targetName?: string) => void
+}) {
+  const { camera, gl } = useThree()
+  const start = connection?.start
+
+  useEffect(() => {
+    if (!start || !connection?.dragging) return
+
+    const raycaster = new Raycaster()
+    const plane = new Plane()
+    const normal = new Vector3()
+    const rect = gl.domElement.getBoundingClientRect()
+    const startPosition = new Vector3(...point3(start.position))
+
+    const getTarget = (clientX: number, clientY: number) => {
+      let nearest: CanvasPointTarget | undefined
+      let nearestDistance = 22
+      for (const point of targets) {
+        if (point.name === start.name) continue
+        const projected = new Vector3(...point3(point.position)).project(camera)
+        const x = rect.left + (projected.x + 1) * rect.width / 2
+        const y = rect.top + (1 - projected.y) * rect.height / 2
+        const distance = Math.hypot(x - clientX, y - clientY)
+        if (distance <= nearestDistance) {
+          nearest = point
+          nearestDistance = distance
+        }
+      }
+      return nearest
+    }
+
+    const getPreview = (clientX: number, clientY: number): P3 => {
+      const pointer = new Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      raycaster.setFromCamera(pointer, camera)
+      camera.getWorldDirection(normal)
+      plane.setFromNormalAndCoplanarPoint(normal, startPosition)
+      const intersection = raycaster.ray.intersectPlane(plane, new Vector3())
+      return intersection
+        ? [intersection.x, intersection.y, intersection.z]
+        : point3(start.position)
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const target = getTarget(event.clientX, event.clientY)
+      onMove(
+        [event.clientX, event.clientY],
+        target ? point3(target.position) : getPreview(event.clientX, event.clientY),
+        target?.name,
+      )
+    }
+    const handlePointerUp = (event: PointerEvent) => {
+      const target = getTarget(event.clientX, event.clientY)
+      onFinish(target?.name)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [camera, connection?.dragging, gl, onFinish, onMove, start, targets])
+
+  return null
+}
+
+function RenderObject({ item, selected, onSelect, onRemove, lineExtensionLength }: {
   item: CanvasObjectWithMeta; selected: boolean; onSelect: () => void; onRemove: () => void
+  lineExtensionLength: number
 }) {
   const obj = item.object as unknown as AnyObject
   const color = colorOf(obj, selected, obj.kind === 'point' ? '#DC2626' : '#334155')
@@ -171,11 +304,10 @@ function RenderObject({ item, selected, onSelect, onRemove }: {
 
   if (obj.kind === 'point') {
     const p = point3(obj.position ?? obj.coordinates?.position)
+    const pointName = String(obj.label ?? '')
     return <group onClick={stop}>
       <mesh position={p}><sphereGeometry args={[selected ? .14 : .09, 16, 16]}/><meshStandardMaterial color={color}/></mesh>
-      <Html position={p} center occlude={false} style={{pointerEvents:'none', whiteSpace:'nowrap'}}>
-        <span style={{color, fontWeight:700, fontSize:15}}>{obj.label}</span>
-      </Html>
+      {pointName && <VertexLabel name={pointName} point={p} color={color}/>}
       {selected && <DeleteMenu position={p} onDelete={onRemove}/>}
     </group>
   }
@@ -184,29 +316,34 @@ function RenderObject({ item, selected, onSelect, onRemove }: {
     const ps = obj.points
     if (!Array.isArray(ps) || ps.length < 2) return null
     const a = point3(ps[0]), b = point3(ps[1])
+    const direction = normalize3(subtract3(b, a))
+    const linePoints: [P3, P3] = obj.extent === 'infinite'
+      ? [
+          subtract3(a, scale3(direction, lineExtensionLength)),
+          add3(b, scale3(direction, lineExtensionLength)),
+        ]
+      : [a, b]
     return <group onClick={stop}>
-      <Line points={[a,b]} color={color} lineWidth={selected ? 5 : 3} />
-      {obj.label && <Html position={a} center occlude={false} style={{pointerEvents:'none'}}><span style={{color,fontWeight:700}}>{obj.label}</span></Html>}
+      <Line points={linePoints} color={color} lineWidth={selected ? 5 : 3} />
       {selected && <DeleteMenu position={a} onDelete={onRemove}/>}
     </group>
   }
 
   if (obj.kind === 'polygon' && vertices) {
     const fill = typeof obj.fill_color === 'string' ? obj.fill_color : color
+    const vertexPositions = Object.entries(vertices).map(([name, raw]) => [name, point3(raw)] as const)
+    const center = vertexPositions.reduce(
+      (sum, [, position]) => add3(sum, scale3(position, 1 / vertexPositions.length)),
+      [0, 0, 0] as P3,
+    )
     return <group onClick={stop}>
       {polygonGeometry && <mesh geometry={polygonGeometry}>
         <meshBasicMaterial color={fill} side={2} transparent opacity={selected ? .32 : .18}/>
       </mesh>}
       {edges.map((edge, index) => <Line key={index} points={edge} color={color} lineWidth={selected ? 5 : 2.5}/>)}
-      {Object.entries(vertices).map(([name, raw]) => {
-        const position = point3(raw)
-        return <Html key={name} position={position} center occlude={false} style={{pointerEvents:'none', whiteSpace:'nowrap'}}>
-          <span style={{color:'#111827',fontSize:13,fontWeight:700}}>{name}</span>
-        </Html>
-      })}
-      {obj.label && <Html position={anchor} center occlude={false} style={{pointerEvents:'none', whiteSpace:'nowrap'}}>
-        <span style={{color:'#1e293b',fontSize:12,background:'rgba(255,255,255,.8)',padding:'2px 5px',borderRadius:4}}>{obj.label}</span>
-      </Html>}
+      {vertexPositions.map(([name, position]) => (
+        <VertexLabel key={name} name={name} point={position} center={center} color="#111827"/>
+      ))}
       {selected && <DeleteMenu position={anchor} onDelete={onRemove}/>}
     </group>
   }
@@ -242,16 +379,16 @@ function RenderObject({ item, selected, onSelect, onRemove }: {
         ))
       }
     }
-    const labelPosition = add3(
-      vertex,
-      scale3(add3(u, inPlane), radius * .75),
-    )
-    const label = `${obj.label} = ${obj.right_angle ? 90 : Math.round(Number(obj.angle_degrees) * 10) / 10}°`
     return <group onClick={stop}>
       <Line points={markerPoints} color={color} lineWidth={selected ? 4 : 2.5}/>
-      <Html position={labelPosition} center occlude={false} style={{pointerEvents:'none', whiteSpace:'nowrap'}}>
-        <span style={{color,fontSize:12,fontWeight:600}}>{label}</span>
-      </Html>
+      {!obj.right_angle && <Html
+        position={add3(vertex, scale3(add3(u, inPlane), radius * .75))}
+        center occlude={false} style={{pointerEvents:'none', whiteSpace:'nowrap'}}
+      >
+        <span style={{color,fontSize:12,fontWeight:600}}>
+          {`${obj.label} = ${Math.round(Number(obj.angle_degrees) * 10) / 10}°`}
+        </span>
+      </Html>}
       {selected && <DeleteMenu position={vertex} onDelete={onRemove}/>}
     </group>
   }
@@ -286,15 +423,17 @@ function RenderObject({ item, selected, onSelect, onRemove }: {
 
   if (obj.kind === 'cube' || obj.kind === 'pyramid' || obj.kind === 'prism') {
     if (!vertices) return null
+    const vertexPositions = Object.entries(vertices).map(([name, raw]) => [name, point3(raw)] as const)
+    const center = vertexPositions.reduce(
+      (sum, [, position]) => add3(sum, scale3(position, 1 / vertexPositions.length)),
+      [0, 0, 0] as P3,
+    )
     return <group onClick={stop}>
       {edges.map((edge, i) => <Line key={i} points={edge} color={color} lineWidth={selected ? 5 : 2.5} />)}
-      {Object.entries(vertices).map(([name, raw]) => {
-        const p = point3(raw)
+      {vertexPositions.map(([name, p]) => {
         return <group key={name}>
           <mesh position={p}><sphereGeometry args={[selected ? .105 : .07, 12, 12]}/><meshStandardMaterial color={color}/></mesh>
-          <Html position={p} center occlude={false} style={{pointerEvents:'none', whiteSpace:'nowrap'}}>
-            <span style={{color:'#111827',fontSize:13,fontWeight:700}}>{name}</span>
-          </Html>
+          <VertexLabel name={name} point={p} center={center} color="#111827"/>
         </group>
       })}
       {selected && <DeleteMenu position={anchor} onDelete={onRemove}/>}
@@ -342,10 +481,82 @@ function RenderObject({ item, selected, onSelect, onRemove }: {
   return null
 }
 
-export default function Canvas3D({ objects, onObjectSelect, selectedObjectId, onRemoveObject, onSendMessage }: Canvas3DProps) {
+export default function Canvas3D({
+  objects,
+  onObjectSelect,
+  selectedObjectId,
+  onRemoveObject,
+  onSendMessage,
+  onConnectPoints,
+}: Canvas3DProps) {
   const [localSelection, setLocalSelection] = useState<string | null>(null)
+  const [connection, setConnection] = useState<PointConnection | null>(null)
+  const connectionRef = useRef<PointConnection | null>(null)
+  const lastPointPress = useRef<{ name: string; time: number } | null>(null)
   const activeSelectedId = selectedObjectId !== undefined ? selectedObjectId : localSelection
   const objects3D = useMemo(() => objects.filter(item => item.visible && item.object.dimension === '3d'), [objects])
+  const pointTargets = useMemo(
+    () => getCanvasPointTargets(objects, '3d'),
+    [objects],
+  )
+
+  const handlePointPointerDown = (event: any, point: CanvasPointTarget) => {
+    const activeConnection = connectionRef.current
+    if (activeConnection) {
+      if (activeConnection.start.name === point.name && !activeConnection.dragging) {
+        event.stopPropagation()
+        event.target.setPointerCapture?.(event.pointerId)
+        const nextConnection = {
+          ...activeConnection,
+          dragging: true,
+          pointer: [event.nativeEvent.clientX, event.nativeEvent.clientY] as [number, number],
+        }
+        connectionRef.current = nextConnection
+        setConnection(nextConnection)
+      }
+      return
+    }
+
+    const now = Date.now()
+    const previous = lastPointPress.current
+    if (previous?.name === point.name && now - previous.time <= 600) {
+      event.stopPropagation()
+      event.target.setPointerCapture?.(event.pointerId)
+      const nextConnection: PointConnection = {
+        start: point,
+        pointer: [event.nativeEvent.clientX, event.nativeEvent.clientY],
+        preview: point3(point.position),
+        dragging: false,
+      }
+      connectionRef.current = nextConnection
+      setConnection(nextConnection)
+      setLocalSelection(null)
+      lastPointPress.current = null
+      return
+    }
+    lastPointPress.current = { name: point.name, time: now }
+  }
+
+  const handleConnectionMove = useCallback((
+    pointer: [number, number],
+    preview: P3,
+    targetName?: string,
+  ) => {
+    const current = connectionRef.current
+    if (!current) return
+    const nextConnection = { ...current, pointer, preview, targetName }
+    connectionRef.current = nextConnection
+    setConnection(nextConnection)
+  }, [])
+  const handleConnectionFinish = useCallback((targetName?: string) => {
+    const current = connectionRef.current
+    if (current && targetName) {
+      onConnectPoints?.(current.start.name, targetName)
+    }
+    connectionRef.current = null
+    setConnection(null)
+  }, [onConnectPoints])
+
   const view = useMemo(() => {
     const positions: P3[] = []
     for (const item of objects3D) {
@@ -356,6 +567,8 @@ export default function Canvas3D({ objects, onObjectSelect, selectedObjectId, on
         positions.push(point3(object.position))
       } else if (object.kind === 'sphere' && object.center) {
         positions.push(point3(object.center))
+      } else if (object.kind === 'line' && Array.isArray(object.points)) {
+        positions.push(...object.points.slice(0, 2).map((position: unknown) => point3(position)))
       }
     }
     if (!positions.length) return { center: [0, 0, 0] as P3, distance: 8 }
@@ -398,10 +611,89 @@ export default function Canvas3D({ objects, onObjectSelect, selectedObjectId, on
       <gridHelper args={[20,20,'#CBD5E1','#E2E8F0']} onClick={(e: any) => { e.stopPropagation(); clearSelection() }}/>
       {objects3D.map(item => <RenderObject key={item.id} item={item}
         selected={activeSelectedId === item.id}
+        lineExtensionLength={Math.max(view.distance * 3, 10)}
         onSelect={() => select(item.id)} onRemove={() => remove(item.id)}/>)}
+      {connection && (
+        <>
+          {pointTargets.map(point => {
+            const isStart = point.name === connection.start.name
+            const isTarget = point.name === connection.targetName
+            return (
+              <mesh
+                key={`connection-target-${point.name}`}
+                position={point3(point.position)}
+                renderOrder={10}
+              >
+                <sphereGeometry args={[isTarget ? .2 : .15, 16, 16]} />
+                <meshBasicMaterial
+                  color={isTarget ? '#22C55E' : isStart ? '#2563EB' : '#F59E0B'}
+                  transparent
+                  opacity={isTarget ? .9 : .5}
+                  depthTest={false}
+                  depthWrite={false}
+                />
+              </mesh>
+            )
+          })}
+          <Line
+            points={[point3(connection.start.position), connection.preview]}
+            color={connection.targetName ? '#16A34A' : '#2563EB'}
+            lineWidth={3}
+            dashed={!connection.targetName}
+            dashSize={.15}
+            gapSize={.1}
+          />
+          <Html position={connection.preview} center style={{ pointerEvents: 'none' }}>
+            <span style={{
+              whiteSpace: 'nowrap',
+              padding: '4px 8px',
+              borderRadius: 6,
+              background: 'rgba(255,255,255,.95)',
+              color: '#1D4ED8',
+              fontSize: 12,
+            }}>
+              {connection.dragging
+                ? 'Kéo đến điểm được tô sáng rồi thả'
+                : 'Kéo từ điểm xanh đến điểm khác để vẽ'}
+            </span>
+          </Html>
+        </>
+      )}
+      {pointTargets.map(point => (
+        <mesh
+          key={`point-target-${point.name}`}
+          position={point3(point.position)}
+          onPointerDown={(event) => handlePointPointerDown(event, point)}
+        >
+          <sphereGeometry args={[.16, 12, 12]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      ))}
+      <PointConnectionEvents
+        connection={connection}
+        targets={pointTargets}
+        onMove={handleConnectionMove}
+        onFinish={handleConnectionFinish}
+      />
       <OrbitControls makeDefault target={view.center}/>
       <FitCamera center={view.center} distance={view.distance}/>
     </Canvas>
+    {!connection && pointTargets.length > 0 && (
+      <div style={{
+        position: 'absolute',
+        top: 12,
+        left: 12,
+        zIndex: 5,
+        padding: '5px 8px',
+        borderRadius: 6,
+        background: 'rgba(255,255,255,.9)',
+        color: '#64748B',
+        fontSize: 12,
+        pointerEvents: 'none',
+      }}>
+        Nhấp đúp vào một điểm rồi kéo đến điểm khác để nối
+      </div>
+    )}
     {objects3D.length === 0 && <div style={{position:'absolute',left:0,right:0,top:'50%',textAlign:'center',color:'#94A3B8',pointerEvents:'none'}}>Chưa có đối tượng 3D</div>}
   </div>
 }

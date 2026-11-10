@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   Stage,
@@ -15,6 +15,10 @@ import type {
   EqualSegmentsObject,
   FunctionObject,
 } from '@/types'
+import {
+  getCanvasPointTargets,
+  type CanvasPointTarget,
+} from '@/utils/canvasPointTargets'
 
 // ============================================================
 // STYLE: màu và kiểu nét do backend trả về
@@ -47,6 +51,48 @@ function getDash(
   return undefined
 }
 
+function clipInfiniteLine(
+  first: [number, number],
+  second: [number, number],
+  width: number,
+  height: number,
+): [[number, number], [number, number]] | null {
+  const [x, y] = first
+  const dx = second[0] - x
+  const dy = second[1] - y
+  const intersections: Array<[number, number]> = []
+  const addIfInside = (candidateX: number, candidateY: number) => {
+    if (
+      candidateX < -1e-6 || candidateX > width + 1e-6
+      || candidateY < -1e-6 || candidateY > height + 1e-6
+    ) return
+    const point: [number, number] = [
+      Math.min(width, Math.max(0, candidateX)),
+      Math.min(height, Math.max(0, candidateY)),
+    ]
+    if (!intersections.some(([px, py]) => Math.hypot(px - point[0], py - point[1]) < 1e-6)) {
+      intersections.push(point)
+    }
+  }
+
+  if (dx !== 0) {
+    for (const edgeX of [0, width]) {
+      const t = (edgeX - x) / dx
+      addIfInside(edgeX, y + t * dy)
+    }
+  }
+  if (dy !== 0) {
+    for (const edgeY of [0, height]) {
+      const t = (edgeY - y) / dy
+      addIfInside(x + t * dx, edgeY)
+    }
+  }
+
+  return intersections.length >= 2
+    ? [intersections[0], intersections[1]]
+    : null
+}
+
 // ============================================================
 // PROPS
 // ============================================================
@@ -60,6 +106,7 @@ interface Canvas2DProps {
   selectedObjectId?: string | null
   onRemoveObject?: (id: string, message?: string) => void
   onSendMessage?: (message: string) => void
+  onConnectPoints?: (start: string, end: string) => void
 }
 
 // ============================================================
@@ -71,6 +118,7 @@ interface LineObject {
   kind: 'line'
   dimension: '2d'
   points: [number, number][]
+  extent?: 'segment' | 'infinite'
   label?: string
   color?: string
   line_style?: 'solid' | 'dashed' | 'dotted'
@@ -106,8 +154,33 @@ export default function Canvas2D({
   onObjectSelect,
   selectedObjectId,
   onRemoveObject,
-  onSendMessage
+  onSendMessage,
+  onConnectPoints,
 }: Canvas2DProps) {
+
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [viewportSize, setViewportSize] = useState({ width, height })
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const observer = new ResizeObserver(([entry]) => {
+      const { width: nextWidth, height: nextHeight } = entry.contentRect
+      if (nextWidth <= 0 || nextHeight <= 0) return
+      setViewportSize(current =>
+        current.width === nextWidth && current.height === nextHeight
+          ? current
+          : { width: nextWidth, height: nextHeight },
+      )
+    })
+
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
+
+  const canvasWidth = viewportSize.width
+  const canvasHeight = viewportSize.height
 
   // Local state dự phòng (nếu không dùng Zustand cho việc selection UI point)
   const [localSelection, setLocalSelection] = useState<{id: string, x: number, y: number} | null>(null)
@@ -119,6 +192,12 @@ export default function Canvas2D({
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [connection, setConnection] = useState<{
+    start: CanvasPointTarget
+    pointer: [number, number]
+    dragging: boolean
+  } | null>(null)
+  const lastPointPress = useRef<{ name: string; time: number } | null>(null)
 
   const objects2D = useMemo(() => {
     return objects.filter(
@@ -127,9 +206,13 @@ export default function Canvas2D({
         item.object.dimension === '2d'
     )
   }, [objects])
+  const pointTargets = useMemo(
+    () => getCanvasPointTargets(objects, '2d'),
+    [objects],
+  )
 
-  const originX = width / 2 + pan.x
-  const originY = height / 2 + pan.y
+  const originX = canvasWidth / 2 + pan.x
+  const originY = canvasHeight / 2 + pan.y
 
   const toCanvasPoint = (x: number, y: number): [number, number] => {
     return [originX + x * scale, originY - y * scale]
@@ -162,8 +245,8 @@ export default function Canvas2D({
   const gridLines = useMemo(() => {
     const lines: React.ReactNode[] = []
     const left = -1 - originX / scale
-    const right = 1 + (width - originX) / scale
-    const bottom = -1 - (height - originY) / scale
+    const right = 1 + (canvasWidth - originX) / scale
+    const bottom = -1 - (canvasHeight - originY) / scale
     const top = 1 + originY / scale
 
     const startX = Math.floor(left)
@@ -177,7 +260,7 @@ export default function Canvas2D({
       if (x === 0) continue
       const [canvasX] = toCanvasPoint(x, 0)
       lines.push(
-        <Line key={`grid-x-${x}`} points={[canvasX, 0, canvasX, height]} stroke="#E2E8F0" strokeWidth={1} />
+        <Line key={`grid-x-${x}`} points={[canvasX, 0, canvasX, canvasHeight]} stroke="#E2E8F0" strokeWidth={1} />
       )
     }
 
@@ -185,37 +268,37 @@ export default function Canvas2D({
       if (y === 0) continue
       const [, canvasY] = toCanvasPoint(0, y)
       lines.push(
-        <Line key={`grid-y-${y}`} points={[0, canvasY, width, canvasY]} stroke="#E2E8F0" strokeWidth={1} />
+        <Line key={`grid-y-${y}`} points={[0, canvasY, canvasWidth, canvasY]} stroke="#E2E8F0" strokeWidth={1} />
       )
     }
     return lines
-  }, [width, height, originX, originY, scale])
+  }, [canvasWidth, canvasHeight, originX, originY, scale])
 
 
   const axisLabels = useMemo(() => {
     const labels: React.ReactNode[] = []
     const left = Math.floor((-originX) / scale) - 1
-    const right = Math.ceil((width - originX) / scale) + 1
-    const bottom = Math.floor(-(height - originY) / scale) - 1
+    const right = Math.ceil((canvasWidth - originX) / scale) + 1
+    const bottom = Math.floor(-(canvasHeight - originY) / scale) - 1
     const top = Math.ceil(originY / scale) + 1
     const step = scale < 12 ? 5 : scale < 22 ? 2 : 1
 
     for (let x = Math.floor(left / step) * step; x <= right; x += step) {
       if (x === 0) continue
       const [canvasX, axisY] = toCanvasPoint(x, 0)
-      if (canvasX < 10 || canvasX > width - 25) continue
+      if (canvasX < 10 || canvasX > canvasWidth - 25) continue
       labels.push(<Text key={`label-x-${x}`} x={canvasX + 4} y={axisY + 6} text={String(x)} fontSize={11} fill="#64748B" />)
     }
 
     for (let y = Math.floor(bottom / step) * step; y <= top; y += step) {
       if (y === 0) continue
       const [axisX, canvasY] = toCanvasPoint(0, y)
-      if (canvasY < 15 || canvasY > height - 15) continue
+      if (canvasY < 15 || canvasY > canvasHeight - 15) continue
       labels.push(<Text key={`label-y-${y}`} x={axisX + 8} y={canvasY - 7} text={String(y)} fontSize={11} fill="#64748B" />)
     }
 
     return labels
-  }, [width, height, originX, originY, scale])
+  }, [canvasWidth, canvasHeight, originX, originY, scale])
 
 
   const handleWheel = (event: any) => {
@@ -234,7 +317,7 @@ export default function Canvas2D({
     const newOriginY = pointer.y + mathY * newScale
 
     setScale(newScale)
-    setPan({ x: newOriginX - width / 2, y: newOriginY - height / 2 })
+    setPan({ x: newOriginX - canvasWidth / 2, y: newOriginY - canvasHeight / 2 })
     
     // Nếu đang chọn menu, cuộn chuột làm mất vị trí => bỏ chọn
     setLocalSelection(null);
@@ -259,12 +342,18 @@ export default function Canvas2D({
   }
 
   const handleMouseMove = (event: any) => {
-    if (!isDragging) return
     const stage = event.target.getStage()
     if (!stage) return
     const pointer = stage.getPointerPosition()
     if (!pointer) return
 
+    if (connection?.dragging) {
+      setConnection({ ...connection, pointer: [pointer.x, pointer.y] })
+      return
+    }
+
+    if (connection) return
+    if (!isDragging) return
     const dx = pointer.x - dragStart.x
     const dy = pointer.y - dragStart.y
     setPan(current => ({ x: current.x + dx, y: current.y + dy }))
@@ -273,7 +362,62 @@ export default function Canvas2D({
     setLocalSelection(null); // Kéo di chuyển -> ẩn menu
   }
 
-  const handleMouseUp = () => setIsDragging(false)
+  const handlePointTargetMouseDown = (
+    event: any,
+    point: CanvasPointTarget,
+  ) => {
+    if (connection) {
+      if (connection.start.name === point.name) {
+        event.cancelBubble = true
+        setConnection({
+          ...connection,
+          dragging: true,
+          pointer: toCanvasPoint(point.position[0], point.position[1]),
+        })
+      }
+      return
+    }
+
+    const now = Date.now()
+    const previous = lastPointPress.current
+    if (previous?.name === point.name && now - previous.time <= 600) {
+      event.cancelBubble = true
+      const [x, y] = toCanvasPoint(point.position[0], point.position[1])
+      setConnection({ start: point, pointer: [x, y], dragging: false })
+      setLocalSelection(null)
+      lastPointPress.current = null
+      return
+    }
+    lastPointPress.current = { name: point.name, time: now }
+  }
+
+  const handleMouseUp = (event: any) => {
+    setIsDragging(false)
+    if (!connection?.dragging) return
+
+    const stage = event.target.getStage()
+    const pointer = stage?.getPointerPosition()
+    const endPoint = pointer
+      ? pointTargets.find(point => {
+          if (point.name === connection.start.name) return false
+          const [x, y] = toCanvasPoint(point.position[0], point.position[1])
+          return Math.hypot(x - pointer.x, y - pointer.y) <= 22
+        })
+      : undefined
+
+    if (endPoint) {
+      onConnectPoints?.(connection.start.name, endPoint.name)
+    }
+    setConnection(null)
+  }
+
+  const snappedPoint = connection
+    ? pointTargets.find(point => {
+        if (point.name === connection.start.name) return false
+        const [x, y] = toCanvasPoint(point.position[0], point.position[1])
+        return Math.hypot(x - connection.pointer[0], y - connection.pointer[1]) <= 22
+      })
+    : undefined
   const resetView = () => { setScale(40); setPan({ x: 0, y: 0 }); setLocalSelection(null); }
 
   const hasObjects = objects2D.length > 0
@@ -289,40 +433,40 @@ export default function Canvas2D({
   return (
     <div
       style={{
-        width,
-        height,
+        width: '100%',
+        height: '100%',
         position: 'relative',
         overflow: 'hidden',
         background: '#F8FAFC',
-        borderRadius: 12,
       }}
+      ref={containerRef}
     >
       <Stage
-        width={width}
-        height={height}
+        width={canvasWidth}
+        height={canvasHeight}
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onClick={handleStageClick}
-        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        style={{ cursor: connection ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
       >
         <Layer>
-          <Rect name="canvas-background" x={0} y={0} width={width} height={height} fill="#F8FAFC" />
+          <Rect name="canvas-background" x={0} y={0} width={canvasWidth} height={canvasHeight} fill="#F8FAFC" />
           {gridLines}
 
           {/* TRỤC X & Y */}
-          <Line points={[0, originY, width, originY]} stroke="#000000" strokeWidth={1.8} />
-          <Line points={[width - 12, originY - 6, width, originY, width - 12, originY + 6]} stroke="#000000" strokeWidth={2} lineCap="round" lineJoin="round" />
-          <Line points={[originX, 0, originX, height]} stroke="#000000" strokeWidth={1.8} />
+          <Line points={[0, originY, canvasWidth, originY]} stroke="#000000" strokeWidth={1.8} />
+          <Line points={[canvasWidth - 12, originY - 6, canvasWidth, originY, canvasWidth - 12, originY + 6]} stroke="#000000" strokeWidth={2} lineCap="round" lineJoin="round" />
+          <Line points={[originX, 0, originX, canvasHeight]} stroke="#000000" strokeWidth={1.8} />
           <Line points={[originX - 6, 12, originX, 0, originX + 6, 12]} stroke="#000000" strokeWidth={2} lineCap="round" lineJoin="round" />
 
-          <Text x={Math.min(width - 25, Math.max(8, originX + 10))} y={8} text="Y" fontSize={16} fontStyle="bold" fill="#475569" />
-          <Text x={width - 30} y={Math.min(height - 22, Math.max(8, originY - 24))} text="X" fontSize={16} fontStyle="bold" fill="#475569" />
+          <Text x={Math.min(canvasWidth - 25, Math.max(8, originX + 10))} y={8} text="Y" fontSize={16} fontStyle="bold" fill="#475569" />
+          <Text x={canvasWidth - 30} y={Math.min(canvasHeight - 22, Math.max(8, originY - 24))} text="X" fontSize={16} fontStyle="bold" fill="#475569" />
           {axisLabels}
 
-          {originX >= 0 && originX <= width && originY >= 0 && originY <= height && (
+          {originX >= 0 && originX <= canvasWidth && originY >= 0 && originY <= canvasHeight && (
             <Text x={originX + 7} y={originY + 7} text="0" fontSize={11} fill="#475569" />
           )}
 
@@ -359,23 +503,6 @@ export default function Canvas2D({
                     onClick={(e) => handleObjectClick(e, item.id)}
                     onTap={(e) => handleObjectClick(e, item.id)}
                   />
-                  <Rect
-                    x={16}
-                    y={54}
-                    width={Math.min(width - 32, Math.max(180, functionObject.label.length * 9 + 24))}
-                    height={36}
-                    fill="#FFFFFF"
-                    opacity={0.92}
-                    cornerRadius={8}
-                  />
-                  <Text
-                    x={28}
-                    y={64}
-                    text={functionObject.label}
-                    fontSize={15}
-                    fill="#334155"
-                    fontStyle="bold"
-                  />
                 </React.Fragment>
               )
             }
@@ -386,15 +513,22 @@ export default function Canvas2D({
               if (!Array.isArray(polygon.vertices) || polygon.vertices.length < 3 || !polygon.coordinates) return null
 
               const polygonPoints: number[] = []
-              const vertexPositions: { name: string; x: number; y: number }[] = []
+              const vertexCoordinates: Array<{ name: string; x: number; y: number }> = []
 
               for (const vertex of polygon.vertices) {
                 const coordinate = polygon.coordinates[vertex]
                 if (!Array.isArray(coordinate) || coordinate.length < 2) return null
                 const [canvasX, canvasY] = toCanvasPoint(coordinate[0], coordinate[1])
                 polygonPoints.push(canvasX, canvasY)
-                vertexPositions.push({ name: vertex, x: canvasX, y: canvasY })
+                vertexCoordinates.push({ name: vertex, x: coordinate[0], y: coordinate[1] })
               }
+              const centroid = vertexCoordinates.reduce(
+                (sum, vertex) => ({
+                  x: sum.x + vertex.x / vertexCoordinates.length,
+                  y: sum.y + vertex.y / vertexCoordinates.length,
+                }),
+                { x: 0, y: 0 },
+              )
 
               const currentColor = getRenderColor(item.id, polygon.style?.color || '', '#64748B')
               const polygonLineWidth = Math.max(1, polygon.style?.stroke_width ?? 2.5)
@@ -418,22 +552,59 @@ export default function Canvas2D({
                     onClick={(e) => handleObjectClick(e, item.id)}
                     onTap={(e) => handleObjectClick(e, item.id)}
                   />
-                  {vertexPositions.map(vertex => (
-                    <React.Fragment key={`${item.id}-${vertex.name}`}>
-                      <Circle x={vertex.x} y={vertex.y} radius={4.5} fill={currentColor} onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
-                      <Text x={vertex.x + 7} y={vertex.y - 20} text={vertex.name} fontSize={14} fontStyle="bold" fill={currentColor} onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
-                    </React.Fragment>
-                  ))}
-                  {polygon.label && (
-                    <Text
-                      x={Math.min(...vertexPositions.map(v => v.x)) + 4}
-                      y={Math.min(...vertexPositions.map(v => v.y)) + 4}
-                      text={polygon.label}
-                      fontSize={12}
-                      fill={currentColor}
-                      opacity={0.85}
-                    />
-                  )}
+                  {vertexCoordinates.map(vertex => {
+                    const [pointX, pointY] = toCanvasPoint(vertex.x, vertex.y)
+                    const directionX = vertex.x - centroid.x
+                    const directionY = vertex.y - centroid.y
+                    const directionLength = Math.hypot(directionX, directionY) || 1
+                    const labelWidth = Math.max(26, vertex.name.length * 8 + 12)
+                    const labelX = pointX + directionX / directionLength * 22 - labelWidth / 2
+                    const labelY = pointY - directionY / directionLength * 22 - 11
+
+                    return (
+                      <React.Fragment key={`${item.id}-${vertex.name}`}>
+                        <Circle
+                          x={pointX}
+                          y={pointY}
+                          radius={5}
+                          fill={currentColor}
+                          stroke="#FFFFFF"
+                          strokeWidth={2}
+                          onClick={(e) => handleObjectClick(e, item.id)}
+                          onTap={(e) => handleObjectClick(e, item.id)}
+                        />
+                        <Rect
+                          x={labelX}
+                          y={labelY}
+                          width={labelWidth}
+                          height={22}
+                          cornerRadius={7}
+                          fill="#FFFFFF"
+                          stroke="#CBD5E1"
+                          strokeWidth={1}
+                          shadowColor="#0F172A"
+                          shadowBlur={4}
+                          shadowOpacity={0.12}
+                          onClick={(e) => handleObjectClick(e, item.id)}
+                          onTap={(e) => handleObjectClick(e, item.id)}
+                        />
+                        <Text
+                          x={labelX}
+                          y={labelY}
+                          width={labelWidth}
+                          height={22}
+                          text={vertex.name}
+                          align="center"
+                          verticalAlign="middle"
+                          fontSize={12}
+                          fontStyle="bold"
+                          fill={currentColor}
+                          onClick={(e) => handleObjectClick(e, item.id)}
+                          onTap={(e) => handleObjectClick(e, item.id)}
+                        />
+                      </React.Fragment>
+                    )
+                  })}
                 </React.Fragment>
               )
             }
@@ -483,7 +654,6 @@ export default function Canvas2D({
               }
 
               const color = getRenderColor(item.id, angle.color || '', '#2563EB')
-              const label = `${angle.label} = ${angle.right_angle ? 90 : Math.round(angle.angle_degrees * 10) / 10}°`
               const labelPoint = toCanvasPoint(
                 vertex[0] + (ux + vx) * radius * 0.75,
                 vertex[1] + (uy + vy) * radius * 0.75,
@@ -492,8 +662,9 @@ export default function Canvas2D({
                 <Line points={marker} stroke={color} strokeWidth={isSelected ? 3.5 : 2}
                   lineCap="round" lineJoin="round" hitStrokeWidth={12}
                   onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
-                <Text x={labelPoint[0] + 4} y={labelPoint[1] - 16} text={label}
-                  fontSize={12} fill={color} onClick={(e) => handleObjectClick(e, item.id)} />
+                {!angle.right_angle && <Text x={labelPoint[0] + 4} y={labelPoint[1] - 16}
+                  text={`${angle.label} = ${Math.round(angle.angle_degrees * 10) / 10}°`}
+                  fontSize={12} fill={color} onClick={(e) => handleObjectClick(e, item.id)} />}
               </React.Fragment>
             }
 
@@ -596,8 +767,19 @@ export default function Canvas2D({
               return <React.Fragment key={item.id}>
                 <Circle x={x} y={y} radius={isSelected ? 7 : 5} fill={color}
                   onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
-                <Text x={x + 8} y={y - 20} text={obj.label || ''} fontSize={14} fontStyle="bold" fill={color}
-                  onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
+                {obj.label && (() => {
+                  const labelWidth = Math.max(26, String(obj.label).length * 8 + 12)
+                  const labelX = x + 12
+                  const labelY = y - 32
+                  return <React.Fragment key={item.id}>
+                    <Rect x={labelX} y={labelY} width={labelWidth} height={22} cornerRadius={7}
+                      fill="#FFFFFF" stroke="#CBD5E1" strokeWidth={1} shadowColor="#0F172A"
+                      shadowBlur={4} shadowOpacity={0.12} />
+                    <Text x={labelX} y={labelY} width={labelWidth} height={22} text={String(obj.label)}
+                      align="center" verticalAlign="middle" fontSize={12} fontStyle="bold" fill={color}
+                      onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
+                  </React.Fragment>
+                })()}
               </React.Fragment>
             }
 
@@ -610,11 +792,21 @@ export default function Canvas2D({
               const [canvasX1, canvasY1] = toCanvasPoint(point1[0], point1[1])
               const [canvasX2, canvasY2] = toCanvasPoint(point2[0], point2[1])
               const currentColor = getRenderColor(item.id, lineObject.color || '', '#2563EB')
+              const isInfinite = lineObject.extent === 'infinite'
+              const renderedLine = isInfinite
+                ? clipInfiniteLine(
+                    [canvasX1, canvasY1],
+                    [canvasX2, canvasY2],
+                    canvasWidth,
+                    canvasHeight,
+                  )
+                : [[canvasX1, canvasY1], [canvasX2, canvasY2]] as [[number, number], [number, number]]
+              if (!renderedLine) return null
 
               return (
                 <React.Fragment key={item.id}>
                   <Line
-                    points={[canvasX1, canvasY1, canvasX2, canvasY2]}
+                    points={renderedLine.flat()}
                     stroke={currentColor}
                     dash={getDash(lineObject.line_style, 3)}
                     strokeWidth={isSelected ? 5 : 3}
@@ -623,11 +815,10 @@ export default function Canvas2D({
                     onClick={(e) => handleObjectClick(e, item.id)}
                     onTap={(e) => handleObjectClick(e, item.id)}
                   />
-                  <Circle x={canvasX1} y={canvasY1} radius={5} fill={currentColor} onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
-                  <Circle x={canvasX2} y={canvasY2} radius={5} fill={currentColor} onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
-                  {lineObject.label && (
-                    <Text x={canvasX1 + 10} y={canvasY1 - 25} text={lineObject.label} fontSize={15} fill={currentColor} fontStyle="bold" />
-                  )}
+                  {!isInfinite && <>
+                    <Circle x={canvasX1} y={canvasY1} radius={5} fill={currentColor} onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
+                    <Circle x={canvasX2} y={canvasY2} radius={5} fill={currentColor} onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
+                  </>}
                 </React.Fragment>
               )
             }
@@ -636,8 +827,78 @@ export default function Canvas2D({
 
           {/* EMPTY STATE */}
           {!hasObjects && (
-            <Text x={width / 2 - 120} y={height / 2 - 10} text="Chưa có đối tượng trên mặt phẳng" fontSize={15} fill="#94A3B8" />
+            <Text x={canvasWidth / 2 - 120} y={canvasHeight / 2 - 10} text="Chưa có đối tượng trên mặt phẳng" fontSize={15} fill="#94A3B8" />
           )}
+
+          {!connection && pointTargets.length > 0 && (
+            <Text
+              x={12}
+              y={12}
+              text="Nhấp đúp vào một điểm rồi kéo đến điểm khác để nối"
+              fontSize={13}
+              fill="#64748B"
+              listening={false}
+            />
+          )}
+
+          {connection && (
+            <>
+              {pointTargets.map(point => {
+                const [x, y] = toCanvasPoint(point.position[0], point.position[1])
+                const isStart = point.name === connection.start.name
+                const isSnapTarget = point.name === snappedPoint?.name
+                return (
+                  <Circle
+                    key={`connection-target-${point.name}`}
+                    x={x}
+                    y={y}
+                    radius={isSnapTarget ? 12 : 9}
+                    fill={isSnapTarget ? '#22C55E' : isStart ? '#2563EB' : '#F59E0B'}
+                    opacity={isSnapTarget ? 0.9 : 0.55}
+                    stroke="#FFFFFF"
+                    strokeWidth={2}
+                    listening={false}
+                  />
+                )
+              })}
+              <Line
+                points={[
+                  ...toCanvasPoint(connection.start.position[0], connection.start.position[1]),
+                  ...(snappedPoint
+                    ? toCanvasPoint(snappedPoint.position[0], snappedPoint.position[1])
+                    : connection.pointer),
+                ]}
+                stroke={snappedPoint ? '#16A34A' : '#2563EB'}
+                strokeWidth={3}
+                dash={snappedPoint ? undefined : [8, 5]}
+                listening={false}
+              />
+              <Text
+                x={12}
+                y={12}
+                text={connection.dragging
+                  ? 'Kéo đến điểm được tô sáng rồi thả để vẽ đường thẳng'
+                  : 'Kéo từ điểm xanh đến điểm khác để vẽ đường thẳng'}
+                fontSize={13}
+                fill="#1D4ED8"
+                listening={false}
+              />
+            </>
+          )}
+
+          {pointTargets.map(point => {
+            const [x, y] = toCanvasPoint(point.position[0], point.position[1])
+            return (
+              <Circle
+                key={`point-target-${point.name}`}
+                x={x}
+                y={y}
+                radius={10}
+                fill="transparent"
+                onMouseDown={(event) => handlePointTargetMouseDown(event, point)}
+              />
+            )
+          })}
         </Layer>
       </Stage>
 
@@ -682,7 +943,7 @@ export default function Canvas2D({
       )}
 
       {/* TOOLBAR */}
-      <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 6, padding: '6px 8px', background: 'rgba(255,255,255,0.94)', borderRadius: 10, boxShadow: '0 2px 8px rgba(15,23,42,0.08)' }}>
+      <div style={{ position: 'absolute', bottom: 12, right: 12, display: 'flex', gap: 6, padding: '6px 8px', background: 'rgba(255,255,255,0.94)', borderRadius: 10, boxShadow: '0 2px 8px rgba(15,23,42,0.08)' }}>
         <button onClick={() => setScale(c => Math.min(200, c * 1.15))} style={{ width: 30, height: 28, border: 'none', borderRadius: 6, background: '#F1F5F9', cursor: 'pointer' }}>+</button>
         <span style={{ minWidth: 58, textAlign: 'center', fontSize: 12, color: '#475569', alignSelf: 'center' }}>{Math.round(scale)} px/u</span>
         <button onClick={() => setScale(c => Math.max(10, c / 1.15))} style={{ width: 30, height: 28, border: 'none', borderRadius: 6, background: '#F1F5F9', cursor: 'pointer' }}>−</button>

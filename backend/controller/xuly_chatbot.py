@@ -20,6 +20,7 @@ import os
 import re
 import time
 import uuid
+from copy import deepcopy
 from math import isfinite
 from typing import Any, Dict, List, Optional
 
@@ -596,7 +597,11 @@ def _collect_state_points(state: Dict[str, Any]) -> Dict[str, List[float]]:
         coords = obj.get("coordinates")
         if isinstance(coords, dict):
             for name, values in coords.items():
+                if name == "center" and isinstance(obj.get("center_name"), str):
+                    continue
                 add_point(name, values)
+        if isinstance(obj.get("center_name"), str):
+            add_point(obj["center_name"], obj.get("center"))
 
         vertices = obj.get("vertices")
         # Polygon/solid dùng vertices dạng map tên điểm -> tọa độ.
@@ -611,6 +616,72 @@ def _collect_state_points(state: Dict[str, Any]) -> Dict[str, List[float]]:
                 add_point(name, values)
 
     return points
+
+
+def connect_canvas_points(
+    conversation_id: str,
+    start_point: str,
+    end_point: str,
+) -> Dict[str, Any]:
+    """Create and persist a line between two named points already on the canvas."""
+    start_name = _normalize_point_name(start_point.strip()) if isinstance(start_point, str) else ""
+    end_name = _normalize_point_name(end_point.strip()) if isinstance(end_point, str) else ""
+    if not conversation_id:
+        raise ValueError("conversation_id không được để trống.")
+    if not start_name or not end_name:
+        raise ValueError("Tên hai điểm phải là chuỗi không rỗng.")
+    if start_name == end_name:
+        raise ValueError("Hãy chọn hai điểm khác nhau để vẽ đường thẳng.")
+
+    state = state_manager.get_state(conversation_id)
+    points = _collect_state_points(state)
+    if start_name not in points or end_name not in points:
+        missing = [name for name in (start_name, end_name) if name not in points]
+        raise ValueError(f"Không tìm thấy điểm trên canvas: {', '.join(missing)}.")
+    start_coordinates = points[start_name]
+    end_coordinates = points[end_name]
+    if len(start_coordinates) != len(end_coordinates):
+        raise ValueError("Hai điểm phải cùng số chiều để nối thành đường thẳng.")
+    if start_coordinates == end_coordinates:
+        raise ValueError("Hai điểm trùng tọa độ, không thể xác định đường thẳng.")
+
+    line = execution_controller.drawing_handlers["draw_line"](
+        {
+            "points": [start_name, end_name],
+            "coordinates": {
+                start_name: start_coordinates,
+                end_name: end_coordinates,
+            },
+            "extent": "segment",
+            "role": "auxiliary",
+            "style": {"color": "#dc2626", "line_style": "solid"},
+            "coordinate_control": {},
+            "constraints": [],
+        },
+        state,
+    )
+    state_manager.add_object(conversation_id, line, line.get("coordinate_control"))
+    return line
+
+
+def clear_canvas(conversation_id: str = DEFAULT_CONVERSATION_ID) -> Dict[str, Any]:
+    conversation_id = conversation_id or DEFAULT_CONVERSATION_ID
+    removed_ids = state_manager.clear_canvas(conversation_id)
+    answer = (
+        "Đã xóa tất cả đối tượng trên canvas."
+        if removed_ids
+        else "Canvas hiện đang trống, không có đối tượng nào để xóa."
+    )
+    state_manager.add_turn(
+        conversation_id,
+        "Xóa tất cả đối tượng trên canvas.",
+        answer,
+    )
+    return _new_response(
+        conversation_id,
+        answer,
+        canvas={"add": [], "update": [], "remove": removed_ids},
+    )
 
 
 def _constraint_point_names(constraint: Any) -> set[str]:
@@ -634,6 +705,38 @@ def _constraint_point_names(constraint: Any) -> set[str]:
         if field in constraint:
             add(constraint[field])
     return found
+
+
+def _constraint_replacement_key(constraint: dict) -> str:
+    """Return a constraint identity without its measured/target value or state metadata."""
+    normalized = deepcopy(constraint)
+    constraint_type = str(
+        normalized.get("type", normalized.get("constraint_type", ""))
+    ).strip().lower()
+    normalized["type"] = constraint_type
+    normalized.pop("constraint_type", None)
+    for field in ("object_ids", "status", "method", "checked_revision"):
+        normalized.pop(field, None)
+
+    value_fields = {
+        "segment_length": ("length", "distance", "value"),
+        "distance": ("length", "distance", "value"),
+        "point_distance": ("length", "distance", "value"),
+        "distance_between_points": ("length", "distance", "value"),
+        "angle": ("angle", "angle_degrees", "value"),
+        "angle_between_planes": ("angle_degrees", "value"),
+        "circle_radius": ("radius", "r", "value"),
+        "ellipse_parameters": (
+            "semi_major_axis", "semi_minor_axis", "a", "b", "rotation_angle",
+        ),
+        "ellipse_axes": (
+            "semi_major_axis", "semi_minor_axis", "a", "b", "rotation_angle",
+        ),
+    }
+    for field in value_fields.get(constraint_type, ()):
+        normalized.pop(field, None)
+
+    return json.dumps(normalized, sort_keys=True, ensure_ascii=False, default=str)
 
 
 def _validate_geometry_tasks(
@@ -760,6 +863,75 @@ def _validate_geometry_tasks(
             all_constraints.append(constraint)
             constraint_owners.append((task_id, constraint))
 
+    update_tasks = [item for item in task_data if item["is_update"]]
+    state_constraint_entries: Dict[str, dict] = {}
+    if update_tasks:
+        affected_points = {
+            name
+            for item in update_tasks
+            for name in item["coords"]
+        }
+        dependents = (state.get("geometry_model") or {}).get("dependents") or {}
+        changed = True
+        while changed:
+            changed = False
+            for source, targets in dependents.items():
+                if source in affected_points and isinstance(targets, (list, tuple)):
+                    for target in targets:
+                        if target not in affected_points:
+                            affected_points.add(target)
+                            changed = True
+
+        known_constraints = {
+            json.dumps(constraint, sort_keys=True, ensure_ascii=False, default=str)
+            for constraint in all_constraints
+        }
+        for constraint_id, constraint in (state.get("constraints") or {}).items():
+            if not isinstance(constraint, dict):
+                continue
+            if not _constraint_point_names(constraint).intersection(affected_points):
+                continue
+
+            # A changed constraint replaces the saved version only when it belongs
+            # to the object being updated and has the same geometric identity.
+            replaced_by = None
+            object_ids = constraint.get("object_ids", [])
+            if isinstance(object_ids, (list, tuple, set)):
+                for item in update_tasks:
+                    task = item["task"]
+                    task_input = item["input"]
+                    target_id = (
+                        task.get("object_id")
+                        or task_input.get("object_id")
+                        or task_input.get("target_id")
+                    )
+                    if not target_id or target_id not in object_ids:
+                        continue
+                    old_key = _constraint_replacement_key(constraint)
+                    replaced_by = next(
+                        (
+                            candidate
+                            for candidate in item["constraints"]
+                            if isinstance(candidate, dict)
+                            and _constraint_replacement_key(candidate) == old_key
+                        ),
+                        None,
+                    )
+                    if replaced_by is not None:
+                        break
+            if replaced_by is not None:
+                state_constraint_entries[constraint_id] = replaced_by
+                continue
+
+            key = json.dumps(constraint, sort_keys=True, ensure_ascii=False, default=str)
+            if key in known_constraints:
+                state_constraint_entries[constraint_id] = constraint
+                continue
+            all_constraints.append(constraint)
+            constraint_owners.append((f"state:{constraint_id}", constraint))
+            state_constraint_entries[constraint_id] = constraint
+            known_constraints.add(key)
+
 
     for item in task_data:
         constructions = item["constructions"]
@@ -785,9 +957,24 @@ def _validate_geometry_tasks(
             )
             if not details:
                 details = ["Không thể tính tọa độ các điểm phụ thuộc."]
+            detail_text = "; ".join(details)
+            needs_clarification = any(
+                phrase in detail_text.lower()
+                for phrase in (
+                    "thiếu/chờ điểm",
+                    "cần điểm tham chiếu",
+                    "cần params.plane_normal",
+                    "chưa được đăng ký",
+                )
+            )
             return {
                 "ok": False, "task_id": task_id,
-                "message": "Không thể dựng các điểm phụ thuộc: " + "; ".join(details),
+                "message": (
+                    "Mình cần bạn bổ sung dữ kiện để dựng hình chính xác: " + detail_text
+                    if needs_clarification
+                    else "Không thể dựng các điểm phụ thuộc: " + detail_text
+                ),
+                "needs_clarification": needs_clarification,
                 "failed_constraints": [], "reports": reports,
             }
         solved_coords = construction_result.get("coordinates") or {}
@@ -870,6 +1057,22 @@ def _validate_geometry_tasks(
 
     final_coords = result.get("coordinates") or all_coords
     final_results = result.get("results") or []
+    if state_constraint_entries:
+        state_validation = []
+        for constraint_id, constraint in state_constraint_entries.items():
+            matching = next(
+                (item for item in final_results if item.get("constraint") == constraint),
+                None,
+            )
+            if matching:
+                state_validation.append({
+                    "constraint_id": constraint_id,
+                    "constraint": constraint,
+                    "status": matching.get("status"),
+                    "method": matching.get("method"),
+                })
+        if update_tasks:
+            update_tasks[0]["task"]["_state_validation"] = state_validation
 
     # Distribute globally validated/repaired coordinates to each task, while avoiding
     # sending unrelated canvas points to every drawing handler.
@@ -895,6 +1098,7 @@ def _validate_geometry_tasks(
         }
         # Keep each task's own constraints; all of them were validated together.
         task_input["constraints"] = item["constraints"]
+        task["_construction_specs"] = deepcopy(item["constructions"])
         if item["constructions"]:
             task_input["constructions"] = {}
 
@@ -938,6 +1142,13 @@ def _persist_validation(conversation_id: str, ordered_tasks: List[dict],
             continue
 
         for index, entry in enumerate(task.get("_validation", [])):
+            already_persisted = any(
+                entry.get("constraint") == state_entry.get("constraint")
+                for candidate_task in ordered_tasks
+                for state_entry in candidate_task.get("_state_validation", [])
+            )
+            if already_persisted:
+                continue
             try:
                 state_manager.set_constraint(
                     conversation_id,
@@ -952,6 +1163,24 @@ def _persist_validation(conversation_id: str, ordered_tasks: List[dict],
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("Không lưu được constraint của %s", task_id)
+
+        for entry in task.get("_state_validation", []):
+            try:
+                state_manager.set_constraint(
+                    conversation_id,
+                    entry["constraint_id"],
+                    {
+                        **entry["constraint"],
+                        "status": entry["status"],
+                        "method": entry["method"],
+                        "checked_revision": revision,
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Không cập nhật được trạng thái constraint %s",
+                    entry.get("constraint_id"),
+                )
 
         for name, control in ((task.get("input") or {}).get("coordinate_control") or {}).items():
             try:
@@ -1168,6 +1397,10 @@ def xuly_thongtin(current_question: str, conversation_id: str = DEFAULT_CONVERSA
     # 4. Kiểm tra ràng buộc cho TẤT CẢ task trước khi vẽ bất cứ thứ gì
     validation = _validate_geometry_tasks(ordered_tasks, state, conversation_id)
     if not validation["ok"]:
+        if validation.get("needs_clarification"):
+            clarification = validation["message"]
+            state_manager.add_turn(conversation_id, current_question, clarification)
+            return _new_response(conversation_id, clarification, success=False)
         lines = [
             f"Mình chưa vẽ vì tọa độ chưa thỏa mãn ràng buộc hình học (task {validation['task_id']})."
         ]

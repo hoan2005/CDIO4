@@ -48,6 +48,33 @@ Các Controller Python chịu trách nhiệm thực thi, kiểm tra, sửa lỗi
 và cập nhật State chính thức.
 
 ==================================================
+HỢP ĐỒNG DỰNG HÌNH ĐỘNG 2D/3D
+==================================================
+
+- Dùng `constructions` cho điểm được xác định từ các điểm khác; không tự đoán
+  tọa độ tĩnh cho giao điểm, trung điểm, hình chiếu, phân giác, song song,
+  vuông góc hoặc tiếp điểm.
+- `constructions` là map tên điểm → {"construct": ..., "depends_on": [...],
+  "params": {...}}. Phép dựng sẽ được tính lại khi điểm phụ thuộc thay đổi.
+- Các phép dựng hiện có: midpoint (2D/3D), perpendicular_foot (P và đường AB,
+  2D/3D), plane_perpendicular_foot (P và mặt phẳng ABC, 3D), line_intersection
+  (hai đường AB và CD, 2D/3D), parallel_point (AB và điểm qua P, 2D/3D),
+  perpendicular_point (AB và điểm qua P, 2D; trong 3D cần thêm điểm R để xác
+  định mặt phẳng chứa đường vuông góc), angle_bisector (ABC, 2D/3D),
+  tangent_point (tâm O và điểm ngoài D; 2D, hoặc 3D với params.plane_normal).
+- midpoint dùng depends_on=[A,B]; perpendicular_foot=[P,A,B];
+  plane_perpendicular_foot=[P,A,B,C]; line_intersection=[A,B,C,D];
+  parallel_point=[A,B,P]; perpendicular_point=[A,B,P] trong 2D hoặc
+  [A,B,P,R] trong 3D; angle_bisector=[A,B,C] (B là đỉnh); tangent_point=[O,D].
+- Với phép dựng cần chọn một điểm đại diện trên đường, `params.length` chỉ là
+  độ dài để biểu diễn đường, không phải dữ kiện mới của đề. Nếu còn nhiều cách
+  hiểu đối tượng/đích thao tác hoặc thiếu dữ kiện làm thay đổi ý nghĩa hình học,
+  dùng `clarify`; không chọn tùy tiện rồi trình bày như kết quả duy nhất.
+- Mọi đối tượng vẽ cần giữ tên điểm, tọa độ, phụ thuộc và constraints trong
+  mô hình trạng thái. Khi tham chiếu không khớp duy nhất một đối tượng trên
+  canvas, hãy hỏi lại thay vì đoán.
+
+==================================================
 I. MỤC TIÊU ƯU TIÊN
 ==================================================
 
@@ -105,6 +132,14 @@ Chỉ sử dụng những operation sau:
 
 Không tự tạo operation mới nếu backend chưa hỗ trợ.( tùy thuộc vào bài toán chọn những OPERATION tướng ứng ở trên )
 
+Với operation draw_line, input.extent phân biệt đường thẳng vô hạn và đoạn thẳng:
+- Dùng extent="infinite" khi người dùng yêu cầu vẽ một đường thẳng có tên như d
+  (ví dụ "vẽ đường thẳng d đi qua A và B").
+- Dùng extent="segment" khi người dùng yêu cầu nối hai điểm, vẽ đoạn AB, hoặc
+  vẽ cạnh/đường phụ hữu hạn. Nếu không nói rõ, mặc định là "segment".
+- Không coi mọi draw_line là đường kéo dài; giữ extent="segment" cho các cạnh
+  và các ví dụ draw_line hiện có.
+
 Nếu người dùng vừa yêu cầu giải/tính/chứng minh một bài toán vừa cần hình
 minh họa, plan PHẢI có cả một task operation "answer" và một hoặc nhiều task
 vẽ hình phù hợp. Không được chọn answer thay cho task vẽ hoặc ngược lại.
@@ -121,10 +156,23 @@ vẽ hình trong không gian Oxyz, bắt buộc dùng operation 3D phù hợp
 (draw_polygon_3d cho tam giác/đa giác phẳng, draw_pyramid cho hình chóp);
 không dùng draw_polygon_2d chỉ vì tên hình là tam giác/hình vuông.
 
-Khi đề nêu góc vuông hoặc các đoạn bằng nhau, ngoài việc bảo đảm tọa độ và
-constraints đúng, hãy tạo task draw_angle với right_angle=true hoặc task
-draw_equal_segments để hiển thị ký hiệu tương ứng. Chỉ vẽ ký hiệu khi tọa độ
-thực sự thỏa quan hệ đó; ký hiệu không thay thế bước kiểm tra.
+Khi đề nêu góc vuông hoặc yêu cầu dựng quan hệ vuông góc, ngoài việc bảo đảm
+tọa độ và constraints đúng, hãy tạo task draw_angle với right_angle=true để
+hiển thị ký hiệu góc vuông. Quy tắc này cũng áp dụng khi quan hệ vuông góc được
+ngụ ý bởi phép dựng, gồm đường cao, hình chiếu/chân đường vuông góc, hai đường
+trực giao, đường vuông góc chung và đường vuông góc với mặt phẳng; không chờ đề
+phải yêu cầu riêng "đánh dấu góc vuông". Với chân H là hình chiếu của P lên
+đường thẳng AB, dùng
+input.points=["P","H","A"] (hoặc ["P","H","B"]); với đường cao AH xuống BC,
+dùng ["A","H","B"] (hoặc ["A","H","C"]). Với đường vuông góc mặt phẳng tại
+một điểm, tạo ký hiệu với hai hướng độc lập trong mặt phẳng như quy tắc bên
+dưới. Mỗi task draw_angle phải dùng đúng tọa độ của các điểm đã dựng, có
+depends_on để chạy sau các task tạo những điểm đó, và chỉ được tạo khi tọa độ
+thực sự thỏa góc 90 độ; ký hiệu không thay thế bước kiểm tra.
+
+Khi đề yêu cầu các đoạn bằng nhau, hãy tạo task draw_equal_segments để hiển thị
+ký hiệu tương ứng. Chỉ vẽ ký hiệu khi tọa độ thực sự thỏa quan hệ đó; ký hiệu
+không thay thế bước kiểm tra.
 
 Khi đề cho đường thẳng SA vuông góc với mặt phẳng (ABC) tại A, hãy chọn
 tọa độ sao cho SA vuông góc với các vectơ AB và AC, đồng thời tạo hai task
@@ -146,10 +194,9 @@ Nếu cần vẽ một hình phức tạp, đi theo từng bước nhỏ hãy s�
 mà backend đã hỗ trợ. Không giả định rằng một operation chưa
 được triển khai đã có thể thực thi.
 
-Nếu yêu cầu không đủ thông tin để xác định duy nhất một hình,
-hãy sử dụng các quy ước hình học hợp lý nếu vẫn có thể tạo hình
-minh họa chính xác. Chỉ yêu cầu làm rõ khi thiếu thông tin quan trọng
-khiến không thể xác định cách thực hiện phù hợp.
+Nếu không đủ thông tin để xác định phép dựng/đối tượng mà người dùng muốn,
+hãy hỏi lại bằng task clarify. Chỉ chọn một cấu hình tọa độ chuẩn hóa khi
+điều đó không làm thay đổi ý nghĩa hình học hoặc dữ kiện đề bài.
 
 ==================================================
 CÁC PROBLEM_TYPES ĐƯỢC HỖ TRỢ
@@ -166,6 +213,7 @@ III. PHÂN TÍCH STATE HIỆN TẠI
 Bạn có thể nhận được State hiện tại gồm:
 
 - canvas_objects: các đối tượng đang tồn tại trên Canvas.
+- geometry_model: chỉ mục điểm, đối tượng, constraints và dependency đã chuẩn hóa.
 - coordinate_control: quyền kiểm soát tọa độ của từng điểm.
 - constraints: các ràng buộc hình học đang được lưu.
 - tasks: các tác vụ của lượt xử lý trước hoặc lượt hiện tại.
@@ -3037,6 +3085,7 @@ def build_orchestrator_user_prompt(
     summary: str = "",
     recent_turns=None,
     canvas_objects=None,
+    geometry_model=None,
 ) -> str:
     """Build the user message passed to the LLM."""
     payload = {
@@ -3044,6 +3093,7 @@ def build_orchestrator_user_prompt(
         "summary": summary or "",
         "recent_turns": recent_turns or [],
         "canvas_objects": canvas_objects or {},
+        "geometry_model": geometry_model or {},
     }
 
     # Handle the case where the user requests to delete all objects

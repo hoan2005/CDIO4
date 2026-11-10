@@ -177,34 +177,7 @@ export default function App() {
             overflow-hidden
           "
         >
-          {/* Nút ẩn Canvas */}
-          <button
-            type="button"
-            onClick={() => setShowCanvas(false)}
-            className="
-              absolute
-              right-4
-              top-4
-              z-50
-              rounded-lg
-              border
-              border-border
-              bg-white
-              px-3
-              py-2
-              text-sm
-              font-medium
-              text-gray-700
-              shadow-sm
-              transition
-              hover:bg-gray-50
-              active:scale-95
-            "
-          >
-            Ẩn minh họa
-          </button>
-
-          <CanvasPanel />
+          <CanvasPanel onHideCanvas={() => setShowCanvas(false)} />
         </div>
       )}
     </div>

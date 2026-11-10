@@ -8,12 +8,14 @@ from math_engine.draw.Common import (
 
 def draw_line(input_data: dict, state: dict = None) -> dict:
     """
-    Đường thẳng đi qua 2 điểm (2D hoặc 3D, tự suy ra từ số tọa độ).
+    Đường/đoạn thẳng qua 2 điểm (2D hoặc 3D, tự suy ra từ số tọa độ).
+    extent nhận "infinite" để kéo dài đường qua hai điểm; mặc định là "segment".
 
     Input:
     {
         "points": ["A", "B"],
         "coordinates": {"A": [0, 0, 0], "B": [4, 0, 0]},
+        "extent": "segment",
         "style": {"color": "#64748b", "line_style": "solid"},
         "coordinate_control": {}, "constraints": []
     }
@@ -44,11 +46,16 @@ def draw_line(input_data: dict, state: dict = None) -> dict:
             f"Hai điểm {a_name} và {b_name} trùng tọa độ, không thể xác định đường thẳng."
         )
 
+    extent = input_data.get("extent", "segment")
+    if extent not in ("segment", "infinite"):
+        raise ValueError("extent phải là 'segment' hoặc 'infinite'.")
+
     return {
         "id": make_id("line"),
         "kind": "line",
         "dimension": "2d" if len(a) == 2 else "3d",
         "label": f"Đường thẳng {a_name}{b_name}",
+        "extent": extent,
 
         # Lưu tham chiếu đến hai điểm
         "point_names": [a_name, b_name],

@@ -13,7 +13,7 @@ import Canvas3D from './Canvas3D'
 // Logic giữ nguyên
 // ============================================================
 
-export default function CanvasPanel() {
+export default function CanvasPanel({ onHideCanvas }: { onHideCanvas: () => void }) {
 
   // ==========================================================
   // LẤY STATE TỪ ZUSTAND
@@ -43,6 +43,11 @@ export default function CanvasPanel() {
         state.sendMessage
     )
 
+  const connectCanvasPoints =
+    useAppStore(
+      state =>
+        state.connectCanvasPoints
+    )
 
   // ==========================================================
   // RENDER
@@ -68,9 +73,9 @@ export default function CanvasPanel() {
 
       <div
         style={{
+          display: canvasMode === '2d' ? 'none' : 'flex',
           height: '64px',
           flexShrink: 0,
-          display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 20px',
@@ -173,14 +178,20 @@ export default function CanvasPanel() {
 
       <div
         style={{
+          position: canvasMode === '2d' ? 'absolute' : 'relative',
+          top: canvasMode === '2d' ? '12px' : undefined,
+          left: canvasMode === '2d' ? '12px' : undefined,
+          right: canvasMode === '2d' ? '12px' : undefined,
+          zIndex: canvasMode === '2d' ? 20 : undefined,
           minHeight: '58px',
           flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '8px 20px',
-          background: '#ffffff',
-          borderBottom: '1px solid #e2e8f0',
+          background: canvasMode === '2d' ? 'transparent' : '#ffffff',
+          borderBottom: canvasMode === '2d' ? 'none' : '1px solid #e2e8f0',
+          pointerEvents: canvasMode === '2d' ? 'none' : undefined,
         }}
       >
 
@@ -218,6 +229,8 @@ export default function CanvasPanel() {
               borderRadius: '10px',
               background: '#f1f5f9',
               border: '1px solid #e2e8f0',
+              boxShadow: canvasMode === '2d' ? '0 2px 8px rgba(15, 23, 42, 0.08)' : undefined,
+              pointerEvents: 'auto',
             }}
           >
 
@@ -291,17 +304,55 @@ export default function CanvasPanel() {
 
         {/* Mô tả chế độ hiện tại */}
 
-        <div
+        {canvasMode === '3d' && <div
           style={{
             fontSize: '12px',
             color: '#64748b',
           }}
         >
 
-          {canvasMode === '2d'
-            ? 'Mặt phẳng tọa độ • Đồ thị • Hình học'
-            : 'Không gian 3 chiều • Hình khối • Hình học không gian'}
+          Không gian 3 chiều • Hình khối • Hình học không gian
 
+        </div>}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto' }}>
+          {canvasMode === '2d' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '7px 12px',
+                borderRadius: '999px',
+                background: 'rgba(255,255,255,0.96)',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
+                fontSize: '12px',
+                color: '#475569',
+              }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e' }} />
+              Sẵn sàng minh họa
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onHideCanvas}
+            style={{
+              padding: '8px 12px',
+              borderRadius: 9,
+              border: '1px solid #e2e8f0',
+              background: '#ffffff',
+              color: '#475569',
+              boxShadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Ẩn minh họa
+          </button>
         </div>
 
       </div>
@@ -315,8 +366,9 @@ export default function CanvasPanel() {
         style={{
           flex: 1,
           minHeight: 0,
-          padding: '16px',
-          background: '#f1f5f9',
+          position: 'relative',
+          padding: canvasMode === '2d' ? 0 : '16px',
+          background: canvasMode === '2d' ? '#F8FAFC' : '#f1f5f9',
           overflow: 'hidden',
         }}
       >
@@ -327,11 +379,10 @@ export default function CanvasPanel() {
             height: '100%',
             position: 'relative',
             overflow: 'hidden',
-            borderRadius: '14px',
+            borderRadius: canvasMode === '2d' ? 0 : '14px',
             background: '#ffffff',
-            border: '1px solid #e2e8f0',
-            boxShadow:
-              '0 4px 12px rgba(15, 23, 42, 0.06)',
+            border: canvasMode === '2d' ? 'none' : '1px solid #e2e8f0',
+            boxShadow: canvasMode === '2d' ? 'none' : '0 4px 12px rgba(15, 23, 42, 0.06)',
           }}
         >
 
@@ -346,6 +397,7 @@ export default function CanvasPanel() {
                 canvasObjects
               }
               onSendMessage={sendMessage}
+              onConnectPoints={connectCanvasPoints}
             />
 
           ) : (
@@ -355,6 +407,7 @@ export default function CanvasPanel() {
                 canvasObjects
               }
               onSendMessage={sendMessage}
+              onConnectPoints={connectCanvasPoints}
             />
 
           )}
@@ -363,7 +416,7 @@ export default function CanvasPanel() {
               CANVAS LABEL
           ================================================== */}
 
-          <div
+          {canvasMode === '3d' && <div
             style={{
               position: 'absolute',
               top: '12px',
@@ -382,11 +435,9 @@ export default function CanvasPanel() {
             }}
           >
 
-            {canvasMode === '2d'
-              ? 'MẶT PHẲNG 2D'
-              : 'KHÔNG GIAN 3D'}
+            KHÔNG GIAN 3D
 
-          </div>
+          </div>}
 
         </div>
 
@@ -399,9 +450,9 @@ export default function CanvasPanel() {
 
       <div
         style={{
+          display: canvasMode === '2d' ? 'none' : 'flex',
           height: '34px',
           flexShrink: 0,
-          display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 20px',

@@ -28,6 +28,35 @@ function stripBackticksAroundMath(content: string): string {
   return result
 }
 
+function repairUnwrappedAlignedMath(content: string): string {
+  return content.replace(
+    /(?:\\begin\{aligned\}\s*)?[A-Za-z][A-Za-z0-9_{}^]*\s*&=[\s\S]*?\\end\{aligned\}(?:\s*\$\$)?/g,
+    (math, offset: number) => {
+      const before = content.slice(0, offset)
+      const displayMathDelimiters = before.match(/\$\$/g)?.length ?? 0
+      const isInsideBracketMath =
+        before.lastIndexOf('\\[') > before.lastIndexOf('\\]') ||
+        before.lastIndexOf('\\(') > before.lastIndexOf('\\)')
+      const codeFenceDelimiters = before.match(/```/g)?.length ?? 0
+
+      if (
+        displayMathDelimiters % 2 === 1 ||
+        isInsideBracketMath ||
+        codeFenceDelimiters % 2 === 1
+      ) {
+        return math
+      }
+
+      const body = math.replace(/\s*\$\$$/, '')
+      const alignedMath = body.startsWith('\\begin{aligned}')
+        ? body
+        : `\\begin{aligned}\n${body}\n`
+
+      return `$$\n${alignedMath}\n$$`
+    },
+  )
+}
+
 // Chuẩn hóa các chuỗi biến đổi toán học để mỗi bước nằm trên một hàng.
 // Ví dụ:
 // 2x = 8 ⇔ x = 4
@@ -184,7 +213,11 @@ export default function ChatMessage({
                 remarkPlugins={[remarkMath, remarkGfm]}
                 rehypePlugins={[rehypeKatex]}
               >
-                {formatMathSteps(stripBackticksAroundMath(message.content))}
+                {formatMathSteps(
+                  repairUnwrappedAlignedMath(
+                    stripBackticksAroundMath(message.content),
+                  ),
+                )}
               </ReactMarkdown>
             </div>
           )}

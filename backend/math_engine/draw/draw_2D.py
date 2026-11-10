@@ -154,6 +154,8 @@ def draw_circle(input_data: dict, state: dict = None) -> dict:
     """
     input_data = require_dict(input_data)
 
+    raw_center = input_data.get("center")
+    center_name = raw_center.strip() if isinstance(raw_center, str) else None
     center = _center_2d(input_data)
     radius = positive_number(input_data.get("radius"), "Bán kính")
     cx, cy = center
@@ -173,6 +175,7 @@ def draw_circle(input_data: dict, state: dict = None) -> dict:
         "dimension": "2d",
         "label": "Đường tròn",
         "center": center,
+        **({"center_name": center_name} if center_name else {}),
         "radius": radius,
         "coordinates": {"center": center},
         "points": points,

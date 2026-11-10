@@ -1,14 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 
 
 export default function ChatInput() {
 
   const [text, setText] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
 
   const sendMessage =
     useAppStore(state => state.sendMessage)
+
+  const clearCanvas =
+    useAppStore(state => state.clearCanvas)
 
   const isLoading =
     useAppStore(state => state.isLoading)
@@ -31,6 +35,10 @@ export default function ChatInput() {
 
     // Xóa input ngay khi gửi
     setText('')
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '88px'
+      textareaRef.current.style.overflowY = 'hidden'
+    }
 
 
     try {
@@ -75,6 +83,33 @@ export default function ChatInput() {
       }}
     >
 
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          marginBottom: '8px',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => void clearCanvas()}
+          disabled={isLoading}
+          aria-label="Xóa tất cả đối tượng trên hình"
+          style={{
+            padding: '7px 11px',
+            border: '1px solid #FECACA',
+            borderRadius: '9px',
+            background: isLoading ? '#F1F5F9' : '#FEF2F2',
+            color: isLoading ? '#94A3B8' : '#B91C1C',
+            fontSize: '12px',
+            fontWeight: 600,
+            cursor: isLoading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          🗑️ Xóa tất cả đối tượng
+        </button>
+      </div>
+
       {/* Gợi ý nhập câu hỏi */}
 
       <div
@@ -105,10 +140,15 @@ export default function ChatInput() {
       >
 
         <textarea
+          ref={textareaRef}
           value={text}
-          onChange={event =>
+          onChange={event => {
             setText(event.target.value)
-          }
+            const textarea = event.currentTarget
+            textarea.style.height = 'auto'
+            textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`
+            textarea.style.overflowY = textarea.scrollHeight > 160 ? 'auto' : 'hidden'
+          }}
           onKeyDown={handleKeyDown}
           disabled={isLoading}
           placeholder={
@@ -116,19 +156,21 @@ export default function ChatInput() {
               ? 'AI đang trả lời...'
               : 'Nhập câu hỏi của bạn...'
           }
-          rows={2}
+          rows={3}
           style={{
             flex: 1,
             resize: 'none',
-            minHeight: '44px',
-            padding: '10px 12px',
+            minHeight: '76px',
+            maxHeight: '160px',
+            padding: '12px',
             border: 'none',
             outline: 'none',
             background: 'transparent',
             color: '#1E293B',
-            fontSize: '14px',
+            fontSize: '15px',
             lineHeight: 1.5,
             fontFamily: 'inherit',
+            overflowY: 'hidden',
           }}
         />
 

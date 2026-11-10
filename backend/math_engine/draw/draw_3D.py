@@ -230,9 +230,16 @@ def draw_sphere(input_data: dict, state: dict = None) -> dict:
     """
     input_data = require_dict(input_data)
 
-    center = input_data.get("center")
-    if center is None:
-        center = get_dict(input_data, "coordinates").get("O", [0, 0, 0])
+    raw_center = input_data.get("center")
+    coordinates = get_dict(input_data, "coordinates")
+    center_name = raw_center.strip() if isinstance(raw_center, str) else None
+    if isinstance(raw_center, str):
+        center = coordinates.get(raw_center)
+    elif raw_center is None:
+        center_name = "O" if "O" in coordinates else None
+        center = coordinates.get("O", [0, 0, 0])
+    else:
+        center = raw_center
     center = validate_point(center, "tâm", dims=(3,))
     radius = positive_number(input_data.get("radius"), "Bán kính mặt cầu", default=3)
 
@@ -242,8 +249,9 @@ def draw_sphere(input_data: dict, state: dict = None) -> dict:
         "dimension": "3d",
         "label": input_data.get("name", "Mặt cầu"),
         "center": center,
+        **({"center_name": center_name} if center_name else {}),
         "radius": radius,
-        "coordinates": {"O": center},
+        "coordinates": {center_name or "O": center},
         **common_fields(input_data, style_default_color="#2563eb"),
     }
 

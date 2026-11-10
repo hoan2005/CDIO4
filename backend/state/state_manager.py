@@ -5,6 +5,8 @@ from copy import deepcopy
 from threading import RLock
 from typing import Any, Dict, List, Optional
 
+from geometry_validator.geometry_model import build_geometry_model, object_points
+
 
 class StateManager:
     """
@@ -30,6 +32,12 @@ class StateManager:
             "summary": "",
             "recent_turns": [],
             "canvas_objects": {},
+            "geometry_model": {
+                "points": {},
+                "objects": {},
+                "constructions": {},
+                "dependents": {},
+            },
             "coordinate_control": {},
             "constraints": {},
             "tasks": [],
@@ -127,6 +135,9 @@ class StateManager:
                 state["coordinate_control"].update(deepcopy(controls))
 
             state["canvas_objects"][object_id] = stored
+            if stored.get("kind") not in {"angle", "equal_segments"}:
+                state["focus_id"] = object_id
+            state["geometry_model"] = build_geometry_model(state["canvas_objects"])
             self._increase_revision(state)
 
     def update_object(
@@ -166,8 +177,45 @@ class StateManager:
                 current["coordinate_control"] = deepcopy(controls)
                 state["coordinate_control"].update(deepcopy(controls))
 
+            state["focus_id"] = object_id
+            state["geometry_model"] = build_geometry_model(state["canvas_objects"])
             self._increase_revision(state)
             self._invalidate_constraints(state, {object_id})
+
+    def get_dependent_object_ids(self, conversation_id: str, object_id: str) -> list[str]:
+        """Return transitive objects constructed from points owned by object_id."""
+        state = self.get_state(conversation_id)
+        objects = state.get("canvas_objects") or {}
+        target = objects.get(object_id)
+        if not isinstance(target, dict):
+            raise KeyError(f"Không tìm thấy object '{object_id}'")
+
+        model = build_geometry_model(objects)
+        removed_ids: set[str] = {object_id}
+        known_points = {
+            name for name in object_points(target)
+            if set(model["points"].get(name, {}).get("object_ids", [])) <= removed_ids
+        }
+        changed = True
+        while changed:
+            changed = False
+            for point_name, spec in model["constructions"].items():
+                dependencies = spec.get("depends_on", [])
+                if point_name in known_points or not isinstance(dependencies, (list, tuple)):
+                    continue
+                if not known_points.intersection(dependencies):
+                    continue
+                owners = set(model["points"].get(point_name, {}).get("object_ids", []))
+                if owners and not owners.issubset(removed_ids):
+                    for owner_id in owners:
+                        if owner_id not in removed_ids:
+                            removed_ids.add(owner_id)
+                            changed = True
+                if owners and owners.issubset(removed_ids):
+                    known_points.add(point_name)
+                    changed = True
+        removed_ids.discard(object_id)
+        return list(removed_ids)
 
     def remove_object(
         self,
@@ -223,11 +271,42 @@ class StateManager:
             self._invalidate_constraints(state, {object_id})
 
             if state["focus_id"] == object_id:
-                state["focus_id"] = None
+                state["focus_id"] = next(
+                    (
+                        candidate_id
+                        for candidate_id, candidate in reversed(list(state["canvas_objects"].items()))
+                        if candidate.get("kind") not in {"angle", "equal_segments"}
+                    ),
+                    None,
+                )
 
+            state["geometry_model"] = build_geometry_model(state["canvas_objects"])
             self._increase_revision(state)
 
             return deepcopy(removed)
+
+    def clear_canvas(self, conversation_id: str) -> list[str]:
+        """Remove every canvas object and reset geometry metadata for the conversation."""
+        with self._lock:
+            state = self._get_internal_state(conversation_id)
+            removed_ids = list(state["canvas_objects"])
+
+            state["canvas_objects"] = {}
+            state["geometry_model"] = {
+                "points": {},
+                "objects": {},
+                "constructions": {},
+                "dependents": {},
+            }
+            state["coordinate_control"] = {}
+            state["constraints"] = {}
+            state["tasks"] = []
+            state["focus_id"] = None
+
+            if removed_ids:
+                self._increase_revision(state)
+
+            return removed_ids
 
     def get_object(
         self,

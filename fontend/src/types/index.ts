@@ -33,6 +33,7 @@ export interface LineObject extends ObjectStyle {
   id: string
   kind: 'line'
   dimension: '2d'
+  extent?: 'segment' | 'infinite'
 
   points: [
     [number, number],
@@ -45,6 +46,7 @@ export interface Line3DObject extends ObjectStyle {
   id: string
   kind: 'line'
   dimension: '3d'
+  extent?: 'segment' | 'infinite'
   points: [[number, number, number], [number, number, number]]
   label?: string
 }
@@ -329,6 +331,7 @@ export interface AppState {
   setSelectedObject: (selection: CanvasObjectSelection) => void
 
   sendMessage: (text: string) => Promise<void>
+  connectCanvasPoints: (startPoint: string, endPoint: string) => Promise<void>
   applyCanvasDelta: (delta: CanvasDelta) => void
   addCanvasObjects: (objects: CanvasObject[]) => void
   updateCanvasObjects: (objects: CanvasObject[]) => void
@@ -338,7 +341,7 @@ export interface AppState {
   // Gửi request xóa lên Backend
   removeObject: (id: string, message?: string) => Promise<void>
   
-  clearCanvas: () => void
+  clearCanvas: () => Promise<void>
   updatePoint: (id: string, x: number, y: number) => void
   toggleSidebar: () => void
   setCanvasMode: (mode: '2d' | '3d') => void

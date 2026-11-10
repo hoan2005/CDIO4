@@ -55,6 +55,47 @@ function wrapObjects(
   }))
 }
 
+function mergeCanvasObjectUpdate(
+  currentObject: CanvasObject,
+  updatedObject: CanvasObject,
+): CanvasObject {
+  const current = currentObject as unknown as Record<string, unknown>
+  const update = updatedObject as unknown as Record<string, unknown>
+  const merged = { ...current, ...update }
+
+  // 3D update payloads may contain vertex names plus a separate coordinates map,
+  // while the renderers consume vertices as { name: [x, y, z] }.
+  if (
+    update.dimension === '3d'
+    && Array.isArray(update.vertices)
+    && update.vertices.every(name => typeof name === 'string')
+    && update.coordinates !== null
+    && typeof update.coordinates === 'object'
+    && !Array.isArray(update.coordinates)
+    && ['cube', 'pyramid', 'prism', 'polygon'].includes(String(update.kind))
+  ) {
+    const coordinates = update.coordinates as Record<string, unknown>
+    const currentVertices =
+      current.vertices !== null
+      && typeof current.vertices === 'object'
+      && !Array.isArray(current.vertices)
+        ? current.vertices as Record<string, unknown>
+        : {}
+    const vertices = { ...currentVertices }
+
+    for (const name of update.vertices) {
+      const position = coordinates[name] ?? coordinates[`point_${name}`]
+      if (Array.isArray(position) && position.length === 3) {
+        vertices[name] = position
+      }
+    }
+
+    merged.vertices = vertices
+  }
+
+  return merged as unknown as CanvasObject
+}
+
 
 // ============================================================
 // ZUSTAND STORE
@@ -286,6 +327,47 @@ export const useAppStore = create<AppState>(
 
     },
 
+    connectCanvasPoints: async (startPoint: string, endPoint: string) => {
+      const conversationId = get().conversationId
+      if (!conversationId) {
+        set(state => ({
+          messages: [
+            ...state.messages,
+            {
+              id: makeId(),
+              role: 'assistant',
+              content: 'Hãy bắt đầu cuộc trò chuyện trước khi nối các điểm trên canvas.',
+              timestamp: Date.now(),
+            },
+          ],
+        }))
+        return
+      }
+
+      try {
+        const line = await chatService.connectPoints(
+          conversationId,
+          startPoint,
+          endPoint,
+        )
+        get().addCanvasObjects([line])
+      } catch (error) {
+        console.error('Canvas point connection error:', error)
+        const detail = error instanceof Error ? error.message : String(error)
+        set(state => ({
+          messages: [
+            ...state.messages,
+            {
+              id: makeId(),
+              role: 'assistant',
+              content: `Không thể nối hai điểm ${startPoint} và ${endPoint}: ${detail}`,
+              timestamp: Date.now(),
+            },
+          ],
+        }))
+      }
+    },
+
 
     // ========================================================
     // APPLY CANVAS DELTA
@@ -391,13 +473,10 @@ export const useAppStore = create<AppState>(
             // Giữ metadata phía frontend, đặc biệt là visible.
             ...canvasObject,
 
-            // Ghép dữ liệu mới lên object cũ để giữ các trường
-            // mà backend không gửi lại trong payload update.
-            // Các trường mới sẽ ghi đè trường cũ cùng tên.
-            object: {
-              ...canvasObject.object,
-              ...updatedObject,
-            } as CanvasObject,
+            object: mergeCanvasObjectUpdate(
+              canvasObject.object,
+              updatedObject,
+            ),
           }
         }),
       }))
@@ -482,14 +561,55 @@ export const useAppStore = create<AppState>(
     // CLEAR CANVAS
     // ========================================================
 
-    clearCanvas: () => {
+    clearCanvas: async () => {
+      if (get().isLoading) {
+        return
+      }
 
-      set({
+      set({ isLoading: true })
 
-        canvasObjects: [],
+      try {
+        const response = await chatService.clearCanvas(
+          get().conversationId ?? '',
+        )
 
-      })
+        set({ conversationId: response.conversation_id })
+        get().applyCanvasDelta(response.canvas)
+        set({
+          selectedObject: {
+            id: null,
+            x: null,
+            y: null,
+          },
+        })
 
+        const aiMessage: Message = {
+          ...response.message,
+          id: response.message.id || makeId(),
+          role: 'assistant',
+          timestamp: response.message.timestamp || Date.now(),
+        }
+
+        set(state => ({
+          isLoading: false,
+          messages: [...state.messages, aiMessage],
+        }))
+      } catch (error) {
+        console.error('Canvas clear error:', error)
+        const detail = error instanceof Error ? error.message : String(error)
+        set(state => ({
+          isLoading: false,
+          messages: [
+            ...state.messages,
+            {
+              id: makeId(),
+              role: 'assistant',
+              content: `⚠️ Không thể xóa các đối tượng trên canvas: ${detail}`,
+              timestamp: Date.now(),
+            },
+          ],
+        }))
+      }
     },
 
 
