@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, Html, Line } from '@react-three/drei'
 import {
   BufferGeometry,
   Float32BufferAttribute,
-  Plane,
-  Raycaster,
   ShapeUtils,
   Vector2,
   Vector3,
@@ -28,13 +26,6 @@ interface Canvas3DProps {
 
 type P3 = [number, number, number]
 type AnyObject = Record<string, any>
-interface PointConnection {
-  start: CanvasPointTarget
-  pointer: [number, number]
-  preview: P3
-  dragging: boolean
-  targetName?: string
-}
 const SELECTED = '#9CA3AF'
 const DEFAULT = '#334155'
 
@@ -182,28 +173,25 @@ function FitCamera({ center, distance }: { center: P3; distance: number }) {
   return null
 }
 
-function PointConnectionEvents({
-  connection,
+function PointHoverDetector({
+  selectedStartPoint,
   targets,
-  onMove,
-  onFinish,
+  onHover,
 }: {
-  connection: PointConnection | null
+  selectedStartPoint: CanvasPointTarget | null
   targets: CanvasPointTarget[]
-  onMove: (pointer: [number, number], preview: P3, targetName?: string) => void
-  onFinish: (targetName?: string) => void
+  onHover: (target: CanvasPointTarget | null) => void
 }) {
   const { camera, gl } = useThree()
-  const start = connection?.start
+  const start = selectedStartPoint
 
   useEffect(() => {
-    if (!start || !connection?.dragging) return
+    if (!start) {
+      onHover(null)
+      return
+    }
 
-    const raycaster = new Raycaster()
-    const plane = new Plane()
-    const normal = new Vector3()
     const rect = gl.domElement.getBoundingClientRect()
-    const startPosition = new Vector3(...point3(start.position))
 
     const getTarget = (clientX: number, clientY: number) => {
       let nearest: CanvasPointTarget | undefined
@@ -222,40 +210,16 @@ function PointConnectionEvents({
       return nearest
     }
 
-    const getPreview = (clientX: number, clientY: number): P3 => {
-      const pointer = new Vector2(
-        ((clientX - rect.left) / rect.width) * 2 - 1,
-        -((clientY - rect.top) / rect.height) * 2 + 1,
-      )
-      raycaster.setFromCamera(pointer, camera)
-      camera.getWorldDirection(normal)
-      plane.setFromNormalAndCoplanarPoint(normal, startPosition)
-      const intersection = raycaster.ray.intersectPlane(plane, new Vector3())
-      return intersection
-        ? [intersection.x, intersection.y, intersection.z]
-        : point3(start.position)
-    }
-
     const handlePointerMove = (event: PointerEvent) => {
       const target = getTarget(event.clientX, event.clientY)
-      onMove(
-        [event.clientX, event.clientY],
-        target ? point3(target.position) : getPreview(event.clientX, event.clientY),
-        target?.name,
-      )
-    }
-    const handlePointerUp = (event: PointerEvent) => {
-      const target = getTarget(event.clientX, event.clientY)
-      onFinish(target?.name)
+      onHover(target || null)
     }
 
     window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', handlePointerUp)
     return () => {
       window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerUp)
     }
-  }, [camera, connection?.dragging, gl, onFinish, onMove, start, targets])
+  }, [camera, gl, onHover, start, targets])
 
   return null
 }
@@ -490,8 +454,8 @@ export default function Canvas3D({
   onConnectPoints,
 }: Canvas3DProps) {
   const [localSelection, setLocalSelection] = useState<string | null>(null)
-  const [connection, setConnection] = useState<PointConnection | null>(null)
-  const connectionRef = useRef<PointConnection | null>(null)
+  const [selectedStartPoint, setSelectedStartPoint] = useState<CanvasPointTarget | null>(null)
+  const [hoverTarget, setHoverTarget] = useState<CanvasPointTarget | null>(null)
   const lastPointPress = useRef<{ name: string; time: number } | null>(null)
   const activeSelectedId = selectedObjectId !== undefined ? selectedObjectId : localSelection
   const objects3D = useMemo(() => objects.filter(item => item.visible && item.object.dimension === '3d'), [objects])
@@ -501,61 +465,39 @@ export default function Canvas3D({
   )
 
   const handlePointPointerDown = (event: any, point: CanvasPointTarget) => {
-    const activeConnection = connectionRef.current
-    if (activeConnection) {
-      if (activeConnection.start.name === point.name && !activeConnection.dragging) {
+    if (selectedStartPoint) {
+      // Already have a start point selected
+      if (selectedStartPoint.name === point.name) {
+        // Clicked the same point - cancel selection
         event.stopPropagation()
-        event.target.setPointerCapture?.(event.pointerId)
-        const nextConnection = {
-          ...activeConnection,
-          dragging: true,
-          pointer: [event.nativeEvent.clientX, event.nativeEvent.clientY] as [number, number],
-        }
-        connectionRef.current = nextConnection
-        setConnection(nextConnection)
+        setSelectedStartPoint(null)
+        setHoverTarget(null)
+        setLocalSelection(null)
+        lastPointPress.current = null
+      } else {
+        // Clicked a different point - connect them
+        event.stopPropagation()
+        onConnectPoints?.(selectedStartPoint.name, point.name)
+        setSelectedStartPoint(null)
+        setHoverTarget(null)
+        setLocalSelection(null)
+        lastPointPress.current = null
       }
       return
     }
 
+    // No start point selected yet - check for double-click
     const now = Date.now()
     const previous = lastPointPress.current
     if (previous?.name === point.name && now - previous.time <= 600) {
       event.stopPropagation()
-      event.target.setPointerCapture?.(event.pointerId)
-      const nextConnection: PointConnection = {
-        start: point,
-        pointer: [event.nativeEvent.clientX, event.nativeEvent.clientY],
-        preview: point3(point.position),
-        dragging: false,
-      }
-      connectionRef.current = nextConnection
-      setConnection(nextConnection)
+      setSelectedStartPoint(point)
       setLocalSelection(null)
       lastPointPress.current = null
       return
     }
     lastPointPress.current = { name: point.name, time: now }
   }
-
-  const handleConnectionMove = useCallback((
-    pointer: [number, number],
-    preview: P3,
-    targetName?: string,
-  ) => {
-    const current = connectionRef.current
-    if (!current) return
-    const nextConnection = { ...current, pointer, preview, targetName }
-    connectionRef.current = nextConnection
-    setConnection(nextConnection)
-  }, [])
-  const handleConnectionFinish = useCallback((targetName?: string) => {
-    const current = connectionRef.current
-    if (current && targetName) {
-      onConnectPoints?.(current.start.name, targetName)
-    }
-    connectionRef.current = null
-    setConnection(null)
-  }, [onConnectPoints])
 
   const view = useMemo(() => {
     const positions: P3[] = []
@@ -586,6 +528,8 @@ export default function Canvas3D({
   const clearSelection = () => {
     setLocalSelection(null)
     onObjectSelect?.(null)
+    setSelectedStartPoint(null)
+    setHoverTarget(null)
   }
   const remove = (id: string) => {
     const message = `hãy xóa đối tượng "${id}" khỏi canvas`
@@ -613,22 +557,22 @@ export default function Canvas3D({
         selected={activeSelectedId === item.id}
         lineExtensionLength={Math.max(view.distance * 3, 10)}
         onSelect={() => select(item.id)} onRemove={() => remove(item.id)}/>)}
-      {connection && (
+      {selectedStartPoint && (
         <>
           {pointTargets.map(point => {
-            const isStart = point.name === connection.start.name
-            const isTarget = point.name === connection.targetName
+            const isStart = point.name === selectedStartPoint.name
+            const isHoverTarget = point.name === hoverTarget?.name
             return (
               <mesh
                 key={`connection-target-${point.name}`}
                 position={point3(point.position)}
                 renderOrder={10}
               >
-                <sphereGeometry args={[isTarget ? .2 : .15, 16, 16]} />
+                <sphereGeometry args={[isHoverTarget ? .2 : isStart ? .15 : .15, 16, 16]} />
                 <meshBasicMaterial
-                  color={isTarget ? '#22C55E' : isStart ? '#2563EB' : '#F59E0B'}
+                  color={isHoverTarget ? '#22C55E' : isStart ? '#2563EB' : '#F59E0B'}
                   transparent
-                  opacity={isTarget ? .9 : .5}
+                  opacity={isHoverTarget ? .9 : .5}
                   depthTest={false}
                   depthWrite={false}
                 />
@@ -636,14 +580,14 @@ export default function Canvas3D({
             )
           })}
           <Line
-            points={[point3(connection.start.position), connection.preview]}
-            color={connection.targetName ? '#16A34A' : '#2563EB'}
+            points={[point3(selectedStartPoint.position), hoverTarget ? point3(hoverTarget.position) : point3(selectedStartPoint.position)]}
+            color={hoverTarget ? '#16A34A' : '#2563EB'}
             lineWidth={3}
-            dashed={!connection.targetName}
+            dashed={!hoverTarget}
             dashSize={.15}
             gapSize={.1}
           />
-          <Html position={connection.preview} center style={{ pointerEvents: 'none' }}>
+          <Html position={hoverTarget ? point3(hoverTarget.position) : point3(selectedStartPoint.position)} center style={{ pointerEvents: 'none' }}>
             <span style={{
               whiteSpace: 'nowrap',
               padding: '4px 8px',
@@ -652,9 +596,9 @@ export default function Canvas3D({
               color: '#1D4ED8',
               fontSize: 12,
             }}>
-              {connection.dragging
-                ? 'Kéo đến điểm được tô sáng rồi thả'
-                : 'Kéo từ điểm xanh đến điểm khác để vẽ'}
+              {hoverTarget
+                ? `Nhấp vào điểm ${hoverTarget.name} để nối`
+                : 'Nhấp vào điểm khác để vẽ đường thẳng'}
             </span>
           </Html>
         </>
@@ -669,16 +613,15 @@ export default function Canvas3D({
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
       ))}
-      <PointConnectionEvents
-        connection={connection}
+      <PointHoverDetector
+        selectedStartPoint={selectedStartPoint}
         targets={pointTargets}
-        onMove={handleConnectionMove}
-        onFinish={handleConnectionFinish}
+        onHover={setHoverTarget}
       />
       <OrbitControls makeDefault target={view.center}/>
       <FitCamera center={view.center} distance={view.distance}/>
     </Canvas>
-    {!connection && pointTargets.length > 0 && (
+    {!selectedStartPoint && pointTargets.length > 0 && (
       <div style={{
         position: 'absolute',
         top: 12,
@@ -691,7 +634,7 @@ export default function Canvas3D({
         fontSize: 12,
         pointerEvents: 'none',
       }}>
-        Nhấp đúp vào một điểm rồi kéo đến điểm khác để nối
+        Nhấp đúp vào một điểm để chọn điểm đầu, sau đó nhấp vào điểm khác để nối
       </div>
     )}
     {objects3D.length === 0 && <div style={{position:'absolute',left:0,right:0,top:'50%',textAlign:'center',color:'#94A3B8',pointerEvents:'none'}}>Chưa có đối tượng 3D</div>}

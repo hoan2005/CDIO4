@@ -192,11 +192,8 @@ export default function Canvas2D({
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
-  const [connection, setConnection] = useState<{
-    start: CanvasPointTarget
-    pointer: [number, number]
-    dragging: boolean
-  } | null>(null)
+  const [selectedStartPoint, setSelectedStartPoint] = useState<CanvasPointTarget | null>(null)
+  const [hoverTarget, setHoverTarget] = useState<CanvasPointTarget | null>(null)
   const lastPointPress = useRef<{ name: string; time: number } | null>(null)
 
   const objects2D = useMemo(() => {
@@ -239,6 +236,8 @@ export default function Canvas2D({
     // Mọi click không bị shape chặn đều được xem là click vùng trống.
     if (onObjectSelect) onObjectSelect(null, 0, 0)
     setLocalSelection(null)
+    setSelectedStartPoint(null)
+    setHoverTarget(null)
   }
 
   // Grid
@@ -321,6 +320,8 @@ export default function Canvas2D({
     
     // Nếu đang chọn menu, cuộn chuột làm mất vị trí => bỏ chọn
     setLocalSelection(null);
+    setSelectedStartPoint(null);
+    setHoverTarget(null);
   }
 
   const handleMouseDown = (event: any) => {
@@ -347,12 +348,18 @@ export default function Canvas2D({
     const pointer = stage.getPointerPosition()
     if (!pointer) return
 
-    if (connection?.dragging) {
-      setConnection({ ...connection, pointer: [pointer.x, pointer.y] })
-      return
+    // Track hover target when a start point is selected
+    if (selectedStartPoint) {
+      const target = pointTargets.find(point => {
+        if (point.name === selectedStartPoint.name) return false
+        const [x, y] = toCanvasPoint(point.position[0], point.position[1])
+        return Math.hypot(x - pointer.x, y - pointer.y) <= 22
+      })
+      setHoverTarget(target || null)
+    } else {
+      setHoverTarget(null)
     }
 
-    if (connection) return
     if (!isDragging) return
     const dx = pointer.x - dragStart.x
     const dy = pointer.y - dragStart.y
@@ -366,24 +373,31 @@ export default function Canvas2D({
     event: any,
     point: CanvasPointTarget,
   ) => {
-    if (connection) {
-      if (connection.start.name === point.name) {
+    if (selectedStartPoint) {
+      // Already have a start point selected
+      if (selectedStartPoint.name === point.name) {
+        // Clicked the same point - cancel selection
         event.cancelBubble = true
-        setConnection({
-          ...connection,
-          dragging: true,
-          pointer: toCanvasPoint(point.position[0], point.position[1]),
-        })
+        setSelectedStartPoint(null)
+        setLocalSelection(null)
+        lastPointPress.current = null
+      } else {
+        // Clicked a different point - connect them
+        event.cancelBubble = true
+        onConnectPoints?.(selectedStartPoint.name, point.name)
+        setSelectedStartPoint(null)
+        setLocalSelection(null)
+        lastPointPress.current = null
       }
       return
     }
 
+    // No start point selected yet - check for double-click
     const now = Date.now()
     const previous = lastPointPress.current
     if (previous?.name === point.name && now - previous.time <= 600) {
       event.cancelBubble = true
-      const [x, y] = toCanvasPoint(point.position[0], point.position[1])
-      setConnection({ start: point, pointer: [x, y], dragging: false })
+      setSelectedStartPoint(point)
       setLocalSelection(null)
       lastPointPress.current = null
       return
@@ -391,34 +405,11 @@ export default function Canvas2D({
     lastPointPress.current = { name: point.name, time: now }
   }
 
-  const handleMouseUp = (event: any) => {
+  const handleMouseUp = (_event: any) => {
     setIsDragging(false)
-    if (!connection?.dragging) return
-
-    const stage = event.target.getStage()
-    const pointer = stage?.getPointerPosition()
-    const endPoint = pointer
-      ? pointTargets.find(point => {
-          if (point.name === connection.start.name) return false
-          const [x, y] = toCanvasPoint(point.position[0], point.position[1])
-          return Math.hypot(x - pointer.x, y - pointer.y) <= 22
-        })
-      : undefined
-
-    if (endPoint) {
-      onConnectPoints?.(connection.start.name, endPoint.name)
-    }
-    setConnection(null)
   }
 
-  const snappedPoint = connection
-    ? pointTargets.find(point => {
-        if (point.name === connection.start.name) return false
-        const [x, y] = toCanvasPoint(point.position[0], point.position[1])
-        return Math.hypot(x - connection.pointer[0], y - connection.pointer[1]) <= 22
-      })
-    : undefined
-  const resetView = () => { setScale(40); setPan({ x: 0, y: 0 }); setLocalSelection(null); }
+  const resetView = () => { setScale(40); setPan({ x: 0, y: 0 }); setLocalSelection(null); setSelectedStartPoint(null); setHoverTarget(null); }
 
   const hasObjects = objects2D.length > 0
   
@@ -450,7 +441,7 @@ export default function Canvas2D({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onClick={handleStageClick}
-        style={{ cursor: connection ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
+        style={{ cursor: selectedStartPoint ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
       >
         <Layer>
           <Rect name="canvas-background" x={0} y={0} width={canvasWidth} height={canvasHeight} fill="#F8FAFC" />
@@ -830,31 +821,31 @@ export default function Canvas2D({
             <Text x={canvasWidth / 2 - 120} y={canvasHeight / 2 - 10} text="Chưa có đối tượng trên mặt phẳng" fontSize={15} fill="#94A3B8" />
           )}
 
-          {!connection && pointTargets.length > 0 && (
+          {!selectedStartPoint && pointTargets.length > 0 && (
             <Text
               x={12}
               y={12}
-              text="Nhấp đúp vào một điểm rồi kéo đến điểm khác để nối"
+              text="Nhấp đúp vào một điểm để chọn điểm đầu, sau đó nhấp vào điểm khác để nối"
               fontSize={13}
               fill="#64748B"
               listening={false}
             />
           )}
 
-          {connection && (
+          {selectedStartPoint && (
             <>
               {pointTargets.map(point => {
                 const [x, y] = toCanvasPoint(point.position[0], point.position[1])
-                const isStart = point.name === connection.start.name
-                const isSnapTarget = point.name === snappedPoint?.name
+                const isStart = point.name === selectedStartPoint.name
+                const isHoverTarget = point.name === hoverTarget?.name
                 return (
                   <Circle
                     key={`connection-target-${point.name}`}
                     x={x}
                     y={y}
-                    radius={isSnapTarget ? 12 : 9}
-                    fill={isSnapTarget ? '#22C55E' : isStart ? '#2563EB' : '#F59E0B'}
-                    opacity={isSnapTarget ? 0.9 : 0.55}
+                    radius={isHoverTarget ? 12 : isStart ? 10 : 9}
+                    fill={isHoverTarget ? '#22C55E' : isStart ? '#2563EB' : '#F59E0B'}
+                    opacity={isHoverTarget ? 0.9 : isStart ? 0.7 : 0.55}
                     stroke="#FFFFFF"
                     strokeWidth={2}
                     listening={false}
@@ -863,22 +854,22 @@ export default function Canvas2D({
               })}
               <Line
                 points={[
-                  ...toCanvasPoint(connection.start.position[0], connection.start.position[1]),
-                  ...(snappedPoint
-                    ? toCanvasPoint(snappedPoint.position[0], snappedPoint.position[1])
-                    : connection.pointer),
+                  ...toCanvasPoint(selectedStartPoint.position[0], selectedStartPoint.position[1]),
+                  ...(hoverTarget
+                    ? toCanvasPoint(hoverTarget.position[0], hoverTarget.position[1])
+                    : toCanvasPoint(selectedStartPoint.position[0], selectedStartPoint.position[1])),
                 ]}
-                stroke={snappedPoint ? '#16A34A' : '#2563EB'}
+                stroke={hoverTarget ? '#16A34A' : '#2563EB'}
                 strokeWidth={3}
-                dash={snappedPoint ? undefined : [8, 5]}
+                dash={hoverTarget ? undefined : [8, 5]}
                 listening={false}
               />
               <Text
                 x={12}
                 y={12}
-                text={connection.dragging
-                  ? 'Kéo đến điểm được tô sáng rồi thả để vẽ đường thẳng'
-                  : 'Kéo từ điểm xanh đến điểm khác để vẽ đường thẳng'}
+                text={hoverTarget
+                  ? `Nhấp vào điểm ${hoverTarget.name} để nối`
+                  : 'Nhấp vào điểm khác để nối đường thẳng'}
                 fontSize={13}
                 fill="#1D4ED8"
                 listening={false}

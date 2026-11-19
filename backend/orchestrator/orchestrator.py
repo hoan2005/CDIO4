@@ -336,6 +336,7 @@ class Orchestrator:
             user_prompt=prompt,
             temperature=0.2,
         )
+        print(f"Raw plan from LLM: {raw_plan}")
         if isinstance(raw_plan, dict):
             raw_plan = ensure_answer_task(raw_plan, user_message)
         return resolve_plan_references(

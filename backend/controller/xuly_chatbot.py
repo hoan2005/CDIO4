@@ -532,7 +532,7 @@ def _is_canvas_delete_request(message: str) -> bool:
     """Nhận diện yêu cầu xóa hình, tránh nhầm phép biến đổi đại số như xóa mẫu số."""
     normalized = message.strip().lower()
     starts_with_delete = re.match(
-        r"^(?:(?:hãy|vui lòng|giúp tôi|làm ơn)\s+)*(?:xóa|xoá|xoa|hủy|huỷ|huy|gỡ|go|remove|delete)\b",
+        r"^(?:(?:hãy|vui lòng|giúp tôi|làm ơn)\s+)*(?:xóa|xoá|xoa|hủy|huỷ|huy|gỡ|go|remove|delete|xoa bo)\b",
         normalized,
     )
     if not starts_with_delete:
@@ -1365,7 +1365,7 @@ def xuly_thongtin(current_question: str, conversation_id: str = DEFAULT_CONVERSA
     if not tasks:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No tasks generated in the plan.",
+            detail="Không có nhiệm vụ nào được tạo ra trong kế hoạch.",
         )
 
     # 2b. Yêu cầu mơ hồ -> hỏi lại, không vẽ.

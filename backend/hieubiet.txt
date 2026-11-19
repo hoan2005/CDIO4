@@ -1,0 +1,61 @@
+--- báo cáo tiến độ ------
++ giải các bài tập trực tiếp bằng mô hình ngôn ngữ lớn
++ LLM hỗ trợ bóc tất các ràng buộc hình học đưa ra  các tạo độ mẫu sau đó backend sẽ tính toán lại
++ workflow :
+1) gửi request lên 
+2) kiểm tra question có phải yêu cầu xóa hay không
+3) cho vào lmm đẻ xác định plan
+
+{'problem_type': 'geometry', 
+'domains': ['geometry'], 
+'needs_visual': True, 
+'visual_dimension': '3d', 
+'needs_symbolic_compute': False, 
+'needs_object_reference': False, 
+'target_ref': None, 
+'ambiguous': False, 
+'tasks': [{'id': 'task_1', 'domain': 'geometry', 'operation': 'draw_cube', 'depends_on': [], 'input': {'role': 'original', 'style': {'color': '#2563eb', 'line_style': 'solid'}, 'vertices': ['A', 'B', 'C', 'D', "A'", "B'", "C'", "D'"], 'coordinates': {'A': [0, 0, 0], 'B': [4, 0, 0], 'C': [4, 4, 0], 'D': [0, 4, 0], "A'": [0, 0, 4], "B'": [4, 0, 4], "C'": [4, 4, 4], "D'": [0, 4, 4]}, 'coordinate_control': {'point_A': {'source': 'llm', 'fixed': False, 'editable': True}, 'point_B': {'source': 'llm', 'fixed': False, 'editable': True}, 'point_C': {'source': 'llm', 'fixed': False, 'editable': True}, 'point_D': {'source': 'llm', 'fixed': False, 'editable': True}, "point_A'": {'source': 'llm', 'fixed': False, 'editable': True}, "point_B'": {'source': 'llm', 'fixed': False, 'editable': True}, "point_C'": {'source': 'llm', 'fixed': False, 'editable': True}, "point_D'": {'source': 'llm', 'fixed': False, 'editable': True}}, 'constraints': [{'type': 'cube', 'points': ['A', 'B', 'C', 'D', "A'", "B'", "C'", "D'"]}]}}], 'notes': ["Vẽ hình lập phương ABCD.A'B'C'D' với cạnh bằng 4."]}
+
+4) nếu ambiguous là true thì đưa lên hội thoại Bạn có thể nói rõ hơn yêu cầu được không?
+5) nếu đây là câu toán thuần thì sẽ lấy kết quả llm  trả về luôn
+6) nếu có task vẽ thì sẽ lọc ra các task vẽ và sắp xếp các task khoong phụ thuộc chạy trước các task phụ thuộc chạy sau ( mục đích  của việc lọc là đẻ chọn tọa độ ok rồi mới giải)
+7) kiểm tra các validate , kiếm tra các 
+Kiểm tra điểm trùng tên mà khác tọa độ	✅ Nhưng chỉ giữa các task trong cùng request (declared_by_task, 834-842, ngưỡng 1e-6). Với điểm đã có trên canvas thì ngược lại: không báo lỗi, canvas thắng — task mới bị bỏ qua tọa độ (830-833), trừ operation="update_object".
+Kiểm tra điểm đã có tọa độ hay chưa	✅ Nhưng chỉ ở bước construction (252-262): điểm chưa có → dựng; đã có + source=llm/state → tính lại; đã có + user/không rõ nguồn → giữ nguyên (skipped_existing). Không phải một pass quét toàn cục.
+Tính tọa độ điểm phụ thuộc	✅ ConstructionSolver.solve lặp theo depends_on (264-373), fail/thiếu điểm → dừng cả request (951-979).
+Kiểm tra constraint	✅ Nhưng diễn ra sau khi mọi construction của mọi task xong, một lần cho toàn bộ constraint (992-1013), không phải per-task.
+Tính lại tọa độ để thỏa constraint	✅ Gồm 2 lớp: scipy least_squares (dịch điểm, tối thiểu thay đổi, chỉ trên relevant_names) rồi validate_and_repair dispatch + CoordinateRepair lặp.
+8) gọi đến hàm dựng hình đẻ trả về cho client ( hàm dựng hình này bản chất là trả về các tọa độ theo chauanr của kanvas và three.js
+
+LLM trả plan chứa coordinates ban đầu cho các điểm.
+_validate_geometry_tasks gom tọa độ từ state canvas + tọa độ LLM trong tasks.
+Nếu có constructions, ConstructionSolver sẽ tính thêm tọa độ các điểm phụ thuộc từ dữ liệu đã có.
+Nếu có constraints, geometry_solver_pipeline.solve_and_validate sẽ giải/sửa tọa độ để thỏa constraint; repair có thể thay đổi tọa độ LLM.
+Nếu không có constraints, backend dùng tọa độ hiện có (bao gồm LLM) và không ép giải lại.
+Với task update_object, backend có logic không cho task mới ghi đè âm thầm tọa độ đã có trên canvas, trừ khi là update.
+
+vậy cho bên trong các file của thưu mục geomery_validator đang làm gì
+
+
+
+construction_solver.py (~820 dòng)	
+Tính tọa độ điểm phụ thuộc từ spec constructions (midpoint, point_on_line, perpendicular_foot, plane_perpendicular_foot, line_intersection/intersection, parallel_point, perpendicular_point, angle_bisector, tangent_point). Giải theo dependency (while pending), có _expand_dependency đổi tên đường "AB" → ["A","B"], tôn trọng nguồn điểm (user không bị ghi đè, llm/state được tính lại), trả needs_llm cho phép dựng chưa đăng ký thay vì đoán. Có register() để thêm phép dựng.
+geometry_model.py	
+Chỉ mục điểm/object chuẩn từ canvas_objects (object_points, build_geometry_model), xây graph phụ thuộc dependents, ghi tọa độ ngược vào object (apply_point_coordinates), và recompute_dependents — tính lại điểm dựng khi một điểm bị kéo, phục vụ tương tác canvas.
+constraint_normalizer.py (~169 dòng)	
+Chuyển constraint "người" (schema LLM: segment_length, right_triangle, isosceles_triangle, circle_radius, parallel_lines với line_1/line_2, midpoint với segment...) sang dạng solver chuẩn hoá (type, points, value). Phân loại solver vs validation_only (vd point_on_segment, ellipse_*, type lạ). Xác định hard_anchors theo control (source=user, fixed=true, editable=false). Có add_minimal_anchors chống trôi hệ (gauge).
+coordinate_solver_controller.py (~119 dòng)
+Chọn backend theo số chiều, chuẩn hóa → (tùy chọn) native → fallback số. Kiểm tra output solver (đúng số chiều, hữu hạn, hard anchor không bị xê dịch > 1e-7). Không kết luận đúng chỉ vì solver success — bắt buộc qua validator.
+scipy_constraint_adapter.py (~159 dòng)
+Backend số mặc định: scipy.optimize.least_squares. Biến = mọi điểm không bị hard-anchor; residual cho distance, midpoint, coincident, collinear, parallel/perpendicular_lines, equal_length, horizontal/vertical, angle, point_on_line, perpendicular_line_plane, angle_between_planes, gauge anchor. Fail-closed với type lạ; báo underconstrained_possible, max_residual.
+plane_gcs_adapter.py (~82 dòng)	Adapter native 2D (planegcs). Chỉ 2D, map constraint rõ ràng, thiếu thư viện/API → lỗi dependency_missing/api_mismatch, không bỏ qua constraint. Hiện chưa bật (prefer_native=False).
+py_slvs_adapter.py (~86 dòng)	Adapter native 3D (binding SolveSpace py_slvs), fail-closed, khác biệt API giữa các bản build → trả api_mismatch. Cũng chưa bật mặc định.
+constraint_dispatcher.py (~809 dòng)	Trái tim kiểm định: mỗi loại constraint có hàm check Python thuần (check_perpendicular_lines, check_midpoint, check_segment_length, check_point_on_segment, check_circle_radius, check_ellipse_parameters...). validate() ưu tiên Python; chỉ fallback LLM khi không có validator Python; status chuẩn hoá verified / failed / unsupported / uncertain / llm_supported. Đánh dấu llm_supported khác verified. validate_many() kiểm tra cả alias point_X bị mâu thuẫn.
+coordinate_repair.py (~233 dòng)	Tạo phương án tọa độ mới khi có constraint failed. Gọi repair_provider (thực tế là LLM Orchestrator, xuly_chatbot.py:460). Chặn tuyệt đối: sửa điểm fixed/editable=false/source=user, sửa điểm không tồn tại, output NaN/Infinity/sai số chiều, hoặc gỡ khóa điểm. Không tự đoán nếu không có provider.
+geometry_validation_controller.py (~594 dòng)	Vòng lặp điều phối: validate toàn bộ constraint → nếu có failed thì CoordinateRepair → chuẩn hóa/kiểm tra đề xuất → merge constraint (_merge_constraints, không âm thầm xóa) → validate lại, tối đa max_repair_attempts+1. Trả validation_level (python_verified / mixed_llm / incomplete / failed / not_required) + repair_history. Không ghi StateManager.
+geometry_solver_pipeline.py (53 dòng)	Ghép 2 bước: CoordinateSolverController.solve → GeometryValidationController.validate_and_repair. Trả stage (coordinate_solver / geometry_validation / validated) để caller biết fail ở đâu.
+__init__.py	Chỉ docstring, không export gì.
+
+PlaneGCS và py_slvs làm việc trực tiếp với các thực thể hình học (điểm, đoạn thẳng, cung tròn, mặt phẳng...) và ràng buộc hình học (song song, vuông góc, tiếp tuyến, bằng nhau, cố định khoảng cách/góc...).
+
+Với SciPy (ví dụ scipy.optimize.least_squares hoặc root), bạn phải tự biến mọi ràng buộc thành hàm phương trình/sai số toán học và tự quản lý biến tọa độ. Khi số lượng hình và ràng buộc tăng lên, việc ghép biến và đạo hàm/jacobian dễ rối và dễ sai.
