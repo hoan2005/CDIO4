@@ -5,6 +5,51 @@ import json
 
 ORCHESTRATOR_SYSTEM_PROMPT = r"""
 
+Khi lập hình 2D hoặc 3D, đọc giả thiết, mục tiêu và các bước giải để chọn
+những đoạn, góc và mặt cần thấy. Ghi các quan hệ vào constraints bằng tên
+điểm thực tế; mô tả điểm phụ bằng constructions và depends_on. Canvas tái sử
+dụng điểm, cạnh đã vẽ và nối các phần tử theo vai trò của chúng trong các
+quan hệ, phép dựng. Nếu lời giải cần thêm một đoạn chưa được biểu diễn (như
+đường trung tuyến nối đỉnh với trung điểm), lập draw_line extent="segment"
+sau khi có hai đầu mút. Dùng draw_polygon_3d cho thiết diện có nhiều đỉnh,
+theo thứ tự quanh biên. Không tự nối mọi cặp đỉnh hoặc gán số đo suy diễn.
+Schema hình bình hành dùng parallelogram/points; góc đường–mặt dùng
+angle_line_plane/line/plane/angle_degrees. Các cạnh cùng độ dài ký hiệu
+dùng equal_length. Tỉ lệ tự chọn không phải số đo hay nhãn của đề.
+
+NHÃN TRÊN CANVAS (áp dụng cho cả hình chính xác và minh họa, 2D và 3D):
+Nếu người dùng cho số đo, biểu thức hoặc yêu cầu ghi chữ, đặt measurement_labels
+trong input của đối tượng tương ứng. Chỉ ghi dữ kiện chính người dùng cung cấp;
+không ghi kích thước mặc định, kết quả tính, số đo từ tọa độ hay góc suy ra.
+Giữ nguyên đơn vị, ký hiệu và nội dung. Ví dụ AB=9 cm, góc ABC=60°:
+[{"kind":"length","points":["A","B"],"text":"9 cm"},
+ {"kind":"angle","points":["A","B","C"],"text":"60°"}].
+kind=point cho chữ do người dùng đặt tại một điểm; length cho đoạn bất kỳ
+(cạnh, đường chéo, trung tuyến...), height/radius/diameter cho chiều cao,
+bán kính, đường kính với hai điểm neo; có thể bỏ points cho bán kính/đường
+kính của đường tròn, mặt cầu hoặc chiều cao hình nón. Với nhãn không có
+điểm neo ghi rõ đại lượng trong text, ví dụ "r = 3 cm". Chỉ ghi mỗi nhãn một lần.
+Nếu hình đã có, dùng update_object với object_id của hình chứa điểm và
+measurement_labels cho các nhãn cần thêm/sửa. Ví dụ "ghi AB là 9" chỉ cập nhật
+nhãn, không đổi tọa độ, constraints hay kích thước. Nếu chưa biết giá trị
+hoặc chưa xác định được đối tượng đích, hỏi lại, không tự đo hoặc tự gán.
+
+QUY TẮC ƯU TIÊN CHO HÌNH MINH HỌA 2D VÀ 3D (áp dụng cả khi lập lại kế hoạch):
+Mặc định vẽ như học sinh trên giấy. Trong input của task vẽ đặt drawing_mode="sketch".
+Chọn tọa độ nhỏ, dễ đọc. Cạnh dài hơn phải trông dài hơn rõ ràng; góc lớn hơn
+phải mở rộng hơn, giữ đúng nhọn/vuông/tù. Không cần ép đúng tỉ lệ hoặc đúng số độ.
+Lưu từng số đo cạnh và góc của đề vào input.sketch_measurements của hình:
+[{"type":"length","points":["A","B"],"value":100},{"type":"length","points":["A","C"],"value":2},
+ {"type":"angle","points":["B","A","C"],"value":60}]. Chẳng hạn có thể chọn
+A=[0,0], B=[5,0], C=[2,2] cho các dữ kiện trên. Không lặp số đo này thành
+segment_length, distance hoặc constraint góc chính xác. Với draw_angle giữ angle_degrees
+theo đề. Giữ các quan hệ dựng hình (bằng nhau, song song, vuông góc, thẳng hàng,
+trung điểm, giao điểm, thuộc mặt phẳng) trong constraints/constructions.
+Khi giải bài hoặc ghi nhãn, dùng dữ kiện thật và biểu thức của đề; không đo trên
+hình minh họa để suy ra kết quả. Với tọa độ được chỉ định, đồ thị, bài yêu cầu
+vẽ đúng tỉ lệ hoặc đo chính xác, dùng quy trình chính xác bên dưới. Quy tắc
+minh họa ưu tiên hơn các ví dụ và hướng dẫn ép số đo thành tọa độ bên dưới.
+
 ==================================================
 HỢP ĐỒNG TỌA ĐỘ VÀ RÀNG BUỘC — ƯU TIÊN CAO
 ==================================================

@@ -217,7 +217,13 @@ export interface CubeObject extends ObjectStyle {
 // CANVAS OBJECT
 // =============================================
 
-export type CanvasObject =
+export interface MeasurementLabel {
+  kind: 'length' | 'angle' | 'point' | 'radius' | 'diameter' | 'height'
+  points: string[]
+  text: string
+}
+
+export type CanvasObject = { measurement_labels?: MeasurementLabel[] } & (
   | FunctionObject
   | CircleObject
   | EllipseObject
@@ -234,7 +240,7 @@ export type CanvasObject =
   | PrismObject
   | LineObject
   | Line3DObject
-  | PointObject
+  | PointObject)
 
 
 
@@ -342,6 +348,7 @@ export interface AppState {
   removeObject: (id: string, message?: string) => Promise<void>
   
   clearCanvas: () => Promise<void>
+  deleteConversation: () => Promise<void>
   updatePoint: (id: string, x: number, y: number) => void
   toggleSidebar: () => void
   setCanvasMode: (mode: '2d' | '3d') => void

@@ -27,3 +27,8 @@ def connect_canvas_points(data: ConnectCanvasPointsRequest):
 @router_chat.post("/canvas/clear")
 def clear_canvas(data: ClearCanvasRequest):
     return xuly_chatbot.clear_canvas(data.conversation_id)
+
+
+@router_chat.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: str):
+    xuly_chatbot.state_manager.delete_conversation(conversation_id)

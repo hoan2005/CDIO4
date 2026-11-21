@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { measurementLabels } from '@/utils/measurementLabels'
+import { geometryGuides, guideKey } from '@/utils/geometryGuides'
 
 import {
   Stage,
@@ -209,6 +211,8 @@ export default function Canvas2D({
   )
 
   const originX = canvasWidth / 2 + pan.x
+  const guideEdges = useMemo(() => geometryGuides(objects2D, '2d', ([x,y]) => [x,y,0])
+    .flatMap(layer => layer.edges), [objects2D])
   const originY = canvasHeight / 2 + pan.y
 
   const toCanvasPoint = (x: number, y: number): [number, number] => {
@@ -238,6 +242,7 @@ export default function Canvas2D({
     setLocalSelection(null)
     setSelectedStartPoint(null)
     setHoverTarget(null)
+    lastPointPress.current = null
   }
 
   // Grid
@@ -369,18 +374,18 @@ export default function Canvas2D({
     setLocalSelection(null); // Kéo di chuyển -> ẩn menu
   }
 
-  const handlePointTargetMouseDown = (
+  const handlePointTargetClick = (
     event: any,
     point: CanvasPointTarget,
   ) => {
+    // Consume the completed click as well as pointer-down: otherwise the
+    // stage clears the start point immediately after the second press.
+    event.cancelBubble = true
     if (selectedStartPoint) {
       // Already have a start point selected
       if (selectedStartPoint.name === point.name) {
-        // Clicked the same point - cancel selection
-        event.cancelBubble = true
-        setSelectedStartPoint(null)
-        setLocalSelection(null)
-        lastPointPress.current = null
+        // Repeated clicks on the start point must not cancel the connection.
+        return
       } else {
         // Clicked a different point - connect them
         event.cancelBubble = true
@@ -645,17 +650,10 @@ export default function Canvas2D({
               }
 
               const color = getRenderColor(item.id, angle.color || '', '#2563EB')
-              const labelPoint = toCanvasPoint(
-                vertex[0] + (ux + vx) * radius * 0.75,
-                vertex[1] + (uy + vy) * radius * 0.75,
-              )
               return <React.Fragment key={item.id}>
                 <Line points={marker} stroke={color} strokeWidth={isSelected ? 3.5 : 2}
                   lineCap="round" lineJoin="round" hitStrokeWidth={12}
                   onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
-                {!angle.right_angle && <Text x={labelPoint[0] + 4} y={labelPoint[1] - 16}
-                  text={`${angle.label} = ${Math.round(angle.angle_degrees * 10) / 10}°`}
-                  fontSize={12} fill={color} onClick={(e) => handleObjectClick(e, item.id)} />}
               </React.Fragment>
             }
 
@@ -821,6 +819,14 @@ export default function Canvas2D({
             <Text x={canvasWidth / 2 - 120} y={canvasHeight / 2 - 10} text="Chưa có đối tượng trên mặt phẳng" fontSize={15} fill="#94A3B8" />
           )}
 
+          {guideEdges.map(edge => <Line key={guideKey(edge)}
+            points={edge.flatMap(([x,y]) => toCanvasPoint(x,y))}
+            stroke="#0E7490" strokeWidth={2} listening={false} />)}
+          {measurementLabels(objects2D, '2d').map(({key, text, position}) => {
+            const [x, y] = toCanvasPoint(position[0], position[1])
+            return <Text key={key} x={x + 4} y={y - 16} text={text} fontSize={13}
+              fill="#1E40AF" listening={false} />
+          })}
           {!selectedStartPoint && pointTargets.length > 0 && (
             <Text
               x={12}
@@ -886,7 +892,10 @@ export default function Canvas2D({
                 y={y}
                 radius={10}
                 fill="transparent"
-                onMouseDown={(event) => handlePointTargetMouseDown(event, point)}
+                onMouseDown={(event) => { event.cancelBubble = true }}
+                onTouchStart={(event) => { event.cancelBubble = true }}
+                onClick={(event) => handlePointTargetClick(event, point)}
+                onTap={(event) => handlePointTargetClick(event, point)}
               />
             )
           })}

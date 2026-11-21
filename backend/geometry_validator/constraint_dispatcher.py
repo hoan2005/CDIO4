@@ -27,7 +27,7 @@ hoặc đổi schema đầu vào để khớp với code hiện có.
 """
 from __future__ import annotations
 
-from math import sqrt, isfinite, acos, degrees
+from math import sqrt, isfinite, acos, asin, degrees
 from typing import Any, Callable
 
 
@@ -427,6 +427,37 @@ def _plane_normal(names: list[str], xyz: dict[str, Vector], tol: float) -> Vecto
     raise ValueError(f"Các điểm {list(names)} thẳng hàng hoặc trùng nhau, không xác định được mặt phẳng.")
 
 
+def check_parallelogram(c, xyz, tol):
+    try:
+        a, b, p, d = (_point(n, xyz) for n in c["points"])
+        if not _same_dimension(a, b, p, d):
+            raise ValueError("Các đỉnh phải cùng số chiều.")
+        u, v = _sub(b, a), _sub(d, a)
+        area = _norm(_cross3(u, v)) if len(u) == 3 else abs(u[0]*v[1]-u[1]*v[0])
+        scale = max(_norm(u), _norm(v))
+        ok = area > tol * _norm(u) * _norm(v) and _distance(_sub(p, b), v) <= tol * scale
+        return _result("verified" if ok else "failed", c,
+                       "Đáy là hình bình hành." if ok else "Đáy suy biến hoặc vectơ BC khác AD.")
+    except (KeyError, TypeError, ValueError) as exc:
+        return _result("failed", c, str(exc))
+
+
+def check_angle_line_plane(c, xyz, tol):
+    try:
+        a, b = (_point(n, xyz) for n in c["line"])
+        normal = _plane_normal(c["plane"], xyz, tol)
+        direction = _sub(b, a)
+        if len(a) != 3 or len(b) != 3 or _norm(direction) <= tol:
+            raise ValueError("Đường thẳng cần hai điểm 3D phân biệt.")
+        sine = abs(_dot(direction, normal)) / (_norm(direction) * _norm(normal))
+        actual = degrees(asin(min(1, sine)))
+        expected = float(c["angle_degrees"])
+        ok = 0 <= expected <= 90 and abs(actual - expected) <= 0.05
+        return _result("verified" if ok else "failed", c, f"Góc đường–mặt là {actual:g}°, đề cho {expected:g}°.")
+    except (KeyError, TypeError, ValueError) as exc:
+        return _result("failed", c, str(exc))
+
+
 def check_angle_between_planes(c: dict, xyz: dict[str, Vector], tol: float) -> dict:
     """Góc nhị diện nhọn (0..90 độ) giữa hai mặt phẳng so với angle_degrees."""
     try:
@@ -640,6 +671,8 @@ class ConstraintDispatcher:
             "point_on_segment": check_point_on_segment,
             "midpoint": check_midpoint,
             "angle_between_planes": check_angle_between_planes,
+            "angle_line_plane": check_angle_line_plane,
+            "parallelogram": check_parallelogram,
             "circle_radius": check_circle_radius,
             "ellipse_parameters": check_ellipse_parameters,
             "ellipse_axes": check_ellipse_parameters,

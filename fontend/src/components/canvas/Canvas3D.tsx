@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
+import { measurementLabels } from '@/utils/measurementLabels'
+import { geometryGuides, guideKey } from '@/utils/geometryGuides'
+import { Canvas, events, useThree, type EventManager } from '@react-three/fiber'
 import { OrbitControls, Html, Line } from '@react-three/drei'
 import {
   BufferGeometry,
@@ -13,6 +15,19 @@ import {
   getCanvasPointTargets,
   type CanvasPointTarget,
 } from '@/utils/canvasPointTargets'
+
+// R3F normally dispatches to the nearest surface first. A grid line or
+// cube edge can intersect the ray before the vertex at the same location.
+const vertexEvents: typeof events = store => ({
+  ...events(store),
+  filter: prioritizePointHits,
+})
+
+const prioritizePointHits: NonNullable<EventManager<HTMLElement>['filter']> = hits =>
+  hits.sort((a, b) =>
+    Number(b.object.userData.connectionPoint === true) -
+    Number(a.object.userData.connectionPoint === true),
+  )
 
 interface Canvas3DProps {
   objects: CanvasObjectWithMeta[]
@@ -345,14 +360,6 @@ function RenderObject({ item, selected, onSelect, onRemove, lineExtensionLength 
     }
     return <group onClick={stop}>
       <Line points={markerPoints} color={color} lineWidth={selected ? 4 : 2.5}/>
-      {!obj.right_angle && <Html
-        position={add3(vertex, scale3(add3(u, inPlane), radius * .75))}
-        center occlude={false} style={{pointerEvents:'none', whiteSpace:'nowrap'}}
-      >
-        <span style={{color,fontSize:12,fontWeight:600}}>
-          {`${obj.label} = ${Math.round(Number(obj.angle_degrees) * 10) / 10}°`}
-        </span>
-      </Html>}
       {selected && <DeleteMenu position={vertex} onDelete={onRemove}/>}
     </group>
   }
@@ -459,21 +466,32 @@ export default function Canvas3D({
   const lastPointPress = useRef<{ name: string; time: number } | null>(null)
   const activeSelectedId = selectedObjectId !== undefined ? selectedObjectId : localSelection
   const objects3D = useMemo(() => objects.filter(item => item.visible && item.object.dimension === '3d'), [objects])
+  const guides = useMemo(() => {
+    const drawnEdges = new Set<string>()
+    const drawnFaces = new Set<string>()
+    const scene = objects3D.map(item => item.object as unknown as AnyObject)
+    for (const obj of scene) {
+      for (const edge of edgePairs(obj)) drawnEdges.add(guideKey(edge))
+      if (obj.kind === 'polygon' && obj.vertices && Object.keys(obj.vertices).length === 3) {
+        drawnFaces.add(guideKey(Object.values(obj.vertices).map(p => point3(p))))
+      }
+    }
+    return geometryGuides(objects3D, '3d', point3, drawnEdges, drawnFaces)
+  }, [objects3D])
   const pointTargets = useMemo(
     () => getCanvasPointTargets(objects, '3d'),
     [objects],
   )
 
-  const handlePointPointerDown = (event: any, point: CanvasPointTarget) => {
+  const handlePointClick = (event: any, point: CanvasPointTarget) => {
+    // Stop the click itself so neither the grid nor objects behind the
+    // point can clear the connection selected by this gesture.
+    event.stopPropagation()
     if (selectedStartPoint) {
       // Already have a start point selected
       if (selectedStartPoint.name === point.name) {
-        // Clicked the same point - cancel selection
-        event.stopPropagation()
-        setSelectedStartPoint(null)
-        setHoverTarget(null)
-        setLocalSelection(null)
-        lastPointPress.current = null
+        // Keep the start selected even if the user clicks it again.
+        return
       } else {
         // Clicked a different point - connect them
         event.stopPropagation()
@@ -526,6 +544,7 @@ export default function Canvas3D({
     onObjectSelect?.(id)
   }
   const clearSelection = () => {
+    lastPointPress.current = null
     setLocalSelection(null)
     onObjectSelect?.(null)
     setSelectedStartPoint(null)
@@ -540,7 +559,7 @@ export default function Canvas3D({
   }
 
   return <div style={{width:'100%', height:'100%', minHeight:400, position:'relative'}}>
-    <Canvas camera={{
+    <Canvas events={vertexEvents} camera={{
       position:[
         view.center[0] + view.distance,
         view.center[1] + view.distance,
@@ -552,11 +571,25 @@ export default function Canvas3D({
       <color attach="background" args={['#F8FAFC']}/>
       <ambientLight intensity={0.8}/>
       <directionalLight position={[5,8,5]} intensity={1}/>
-      <gridHelper args={[20,20,'#CBD5E1','#E2E8F0']} onClick={(e: any) => { e.stopPropagation(); clearSelection() }}/>
+      <gridHelper args={[20,20,'#CBD5E1','#E2E8F0']} />
       {objects3D.map(item => <RenderObject key={item.id} item={item}
         selected={activeSelectedId === item.id}
         lineExtensionLength={Math.max(view.distance * 3, 10)}
         onSelect={() => select(item.id)} onRemove={() => remove(item.id)}/>)}
+      {guides.flatMap(({faces}) => faces).map(face =>
+        <mesh key={guideKey(face)} raycast={() => {}}>
+          <bufferGeometry>
+            <bufferAttribute attach="attributes-position" args={[new Float32Array(face.flat()), 3]} />
+          </bufferGeometry>
+          <meshBasicMaterial color="#38BDF8" side={2} transparent opacity={0.18} depthWrite={false} />
+        </mesh>)}
+      {guides.flatMap(({edges}) => edges).map(edge =>
+        <Line key={guideKey(edge)} points={edge} color="#0E7490" lineWidth={2.5} raycast={() => {}} />)}
+      {measurementLabels(objects3D, '3d').map(({key, text, position}) =>
+        <Html key={key} position={point3(position)} style={{pointerEvents:'none', whiteSpace:'nowrap'}}>
+          <span style={{display:'block', transform:'translate(4px,-100%)', color:'#1E40AF',
+            background:'rgba(255,255,255,.9)', fontSize:13}}>{text}</span>
+        </Html>)}
       {selectedStartPoint && (
         <>
           {pointTargets.map(point => {
@@ -567,6 +600,7 @@ export default function Canvas3D({
                 key={`connection-target-${point.name}`}
                 position={point3(point.position)}
                 renderOrder={10}
+                raycast={() => {}}
               >
                 <sphereGeometry args={[isHoverTarget ? .2 : isStart ? .15 : .15, 16, 16]} />
                 <meshBasicMaterial
@@ -581,6 +615,7 @@ export default function Canvas3D({
           })}
           <Line
             points={[point3(selectedStartPoint.position), hoverTarget ? point3(hoverTarget.position) : point3(selectedStartPoint.position)]}
+            raycast={() => {}}
             color={hoverTarget ? '#16A34A' : '#2563EB'}
             lineWidth={3}
             dashed={!hoverTarget}
@@ -606,8 +641,10 @@ export default function Canvas3D({
       {pointTargets.map(point => (
         <mesh
           key={`point-target-${point.name}`}
+          userData={{ connectionPoint: true }}
           position={point3(point.position)}
-          onPointerDown={(event) => handlePointPointerDown(event, point)}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => handlePointClick(event, point)}
         >
           <sphereGeometry args={[.16, 12, 12]} />
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />

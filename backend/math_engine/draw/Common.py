@@ -117,13 +117,40 @@ def get_dict(input_data: dict, key: str) -> dict:
     return value
 
 
+def merge_measurement_labels(existing, incoming):
+    """Replace a label on the same feature, preserving labels on other features."""
+    if not isinstance(incoming, list):
+        raise ValueError("measurement_labels phải là danh sách.")
+    labels = {}
+    for label in [*existing, *incoming]:
+        if not isinstance(label, dict):
+            raise ValueError("Nhãn phải là một object.")
+        kind, names, text = label.get("kind"), label.get("points", []), label.get("text")
+        if not isinstance(names, list) or not all(isinstance(n, str) and n.strip() for n in names):
+            raise ValueError("Điểm neo của nhãn phải là danh sách tên điểm.")
+        sizes = {"length": (2,), "angle": (3,), "point": (1,), "radius": (0, 2),
+                 "diameter": (0, 2), "height": (0, 2)}
+        if kind not in sizes or len(names) not in sizes[kind] or len(set(names)) != len(names):
+            raise ValueError("Loại nhãn hoặc số điểm neo không hợp lệ.")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("Thiếu nội dung nhãn.")
+        key = (kind, min(tuple(names), tuple(reversed(names))))
+        labels[key] = {"kind": kind, "points": names, "text": text.strip()}
+    return list(labels.values())
+
+
 def common_fields(input_data: dict, style_default_color: str = DEFAULT_COLOR) -> dict:
     """role, style, coordinate_control, constraints."""
     return {
         "role": input_data.get("role", "original"),
+        **({"measurement_labels": merge_measurement_labels([], input_data["measurement_labels"])}
+           if "measurement_labels" in input_data else {}),
         **style_fields(input_data.get("style"), default_color=style_default_color),
         "coordinate_control": get_dict(input_data, "coordinate_control"),
         "constraints": get_list(input_data, "constraints"),
+        **({"sketch_measurements": input_data["sketch_measurements"]}
+           if input_data.get("sketch_measurements") else {}),
+        **({"drawing_mode": "sketch"} if input_data.get("drawing_mode") == "sketch" else {}),
     }
 
 

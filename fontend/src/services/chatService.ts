@@ -9,6 +9,12 @@ const API_BASE_URL = 'http://localhost:8000'
 
 
 export const chatService = {
+  async deleteConversation(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/conversations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  },
 
   async send(
     request: ChatRequest

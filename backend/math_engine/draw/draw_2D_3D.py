@@ -168,7 +168,10 @@ def draw_angle(input_data: dict, state: dict = None) -> dict:
             raise ValueError("angle_degrees phải là số.")
         if not math.isfinite(requested_angle) or not 0 < requested_angle < 180:
             raise ValueError("angle_degrees phải nằm giữa 0 và 180.")
-        if abs(angle_degrees - requested_angle) > 0.5:
+        if input_data.get("drawing_mode") == "sketch":
+            from geometry_validator.sketch_measurements import check_sketch_measurements
+            check_sketch_measurements([{"type": "angle", "points": names, "value": requested_angle}], coordinates)
+        elif abs(angle_degrees - requested_angle) > 0.5:
             raise ValueError("Tọa độ các điểm không khớp với số đo góc được yêu cầu.")
     if right_angle and abs(angle_degrees - 90) > 0.5:
         raise ValueError("Không thể đánh dấu góc vuông vì tọa độ hiện tại không tạo góc 90 độ.")

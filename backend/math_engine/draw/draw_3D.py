@@ -1,5 +1,4 @@
 import math
-from math import dist
 
 
 from math_engine.draw.Common import (
@@ -95,16 +94,11 @@ def draw_cube(input_data: dict, state: dict = None) -> dict:
 
     vertices = _vertex_coords(names, get_dict(input_data, "coordinates"))
 
-    if "A" in vertices and "B" in vertices:
-        side_label = f"{dist(vertices['A'], vertices['B']):g}"
-    else:
-        side_label = "chưa xác định"
-
     return {
         "id": make_id("cube"),
         "kind": "cube",
         "dimension": "3d",
-        "label": f"Hình lập phương cạnh {side_label}",
+        "label": input_data.get("label") or "Hình lập phương",
         "vertices": vertices,
         **common_fields(input_data),
     }

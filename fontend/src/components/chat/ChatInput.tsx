@@ -11,8 +11,8 @@ export default function ChatInput() {
   const sendMessage =
     useAppStore(state => state.sendMessage)
 
-  const clearCanvas =
-    useAppStore(state => state.clearCanvas)
+  const deleteConversation =
+    useAppStore(state => state.deleteConversation)
 
   const isLoading =
     useAppStore(state => state.isLoading)
@@ -92,9 +92,9 @@ export default function ChatInput() {
       >
         <button
           type="button"
-          onClick={() => void clearCanvas()}
+          onClick={() => void deleteConversation()}
           disabled={isLoading}
-          aria-label="Xóa tất cả đối tượng trên hình"
+          aria-label="Xóa hội thoại và tất cả đối tượng trên hình"
           style={{
             padding: '7px 11px',
             border: '1px solid #FECACA',
@@ -106,7 +106,7 @@ export default function ChatInput() {
             cursor: isLoading ? 'not-allowed' : 'pointer',
           }}
         >
-          🗑️ Xóa tất cả đối tượng
+          🗑️ Xóa hội thoại và hình vẽ
         </button>
       </div>
 
