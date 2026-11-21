@@ -70,3 +70,7 @@ Ràng buộc mâu thuẫn
 
 Cho hai đường thẳng AB và CD đều có độ dài khác 0. Hãy dựng sao cho AB vừa song song vừa vuông góc với CD.
 Kỳ vọng: Phát hiện mâu thuẫn, hỏi lại hoặc từ chối; không cập nhật một hình chỉ thỏa một trong hai ràng buộc.
+
+
+Một Kim tự tháp ở Ai Cập có dạng khối chóp .S ABCD , có đáy là hình vuông với cạnh
+dài 180 ( )m , các cạnh bên bằng nhau và dài 160 ( )m . Tính góc giữa hai mặt phẳng ( )SBC và ( )SCD .

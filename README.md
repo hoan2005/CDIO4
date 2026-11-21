@@ -30,7 +30,7 @@ thao tác vẽ rồi trả kết quả về frontend.
 ## Cấu trúc dự án
 
 ```text
-.
+cdio4
 ├── backend/
 │   ├── controller/          # Điều phối hội thoại và thực thi
 │   ├── geometry_validator/  # Kiểm tra ràng buộc và phép dựng hình

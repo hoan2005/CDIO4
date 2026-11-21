@@ -6,7 +6,6 @@ import {
   Float32BufferAttribute,
   ShapeUtils,
   Vector2,
-  Vector3,
 } from 'three'
 import type { CanvasObjectWithMeta } from '@/types'
 import {
@@ -170,57 +169,6 @@ function FitCamera({ center, distance }: { center: P3; distance: number }) {
     camera.lookAt(...center)
     camera.updateProjectionMatrix()
   }, [camera, center, distance])
-  return null
-}
-
-function PointHoverDetector({
-  selectedStartPoint,
-  targets,
-  onHover,
-}: {
-  selectedStartPoint: CanvasPointTarget | null
-  targets: CanvasPointTarget[]
-  onHover: (target: CanvasPointTarget | null) => void
-}) {
-  const { camera, gl } = useThree()
-  const start = selectedStartPoint
-
-  useEffect(() => {
-    if (!start) {
-      onHover(null)
-      return
-    }
-
-    const rect = gl.domElement.getBoundingClientRect()
-
-    const getTarget = (clientX: number, clientY: number) => {
-      let nearest: CanvasPointTarget | undefined
-      let nearestDistance = 22
-      for (const point of targets) {
-        if (point.name === start.name) continue
-        const projected = new Vector3(...point3(point.position)).project(camera)
-        const x = rect.left + (projected.x + 1) * rect.width / 2
-        const y = rect.top + (1 - projected.y) * rect.height / 2
-        const distance = Math.hypot(x - clientX, y - clientY)
-        if (distance <= nearestDistance) {
-          nearest = point
-          nearestDistance = distance
-        }
-      }
-      return nearest
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const target = getTarget(event.clientX, event.clientY)
-      onHover(target || null)
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove)
-    }
-  }, [camera, gl, onHover, start, targets])
-
   return null
 }
 
@@ -455,7 +403,6 @@ export default function Canvas3D({
 }: Canvas3DProps) {
   const [localSelection, setLocalSelection] = useState<string | null>(null)
   const [selectedStartPoint, setSelectedStartPoint] = useState<CanvasPointTarget | null>(null)
-  const [hoverTarget, setHoverTarget] = useState<CanvasPointTarget | null>(null)
   const lastPointPress = useRef<{ name: string; time: number } | null>(null)
   const activeSelectedId = selectedObjectId !== undefined ? selectedObjectId : localSelection
   const objects3D = useMemo(() => objects.filter(item => item.visible && item.object.dimension === '3d'), [objects])
@@ -471,7 +418,6 @@ export default function Canvas3D({
         // Clicked the same point - cancel selection
         event.stopPropagation()
         setSelectedStartPoint(null)
-        setHoverTarget(null)
         setLocalSelection(null)
         lastPointPress.current = null
       } else {
@@ -479,7 +425,6 @@ export default function Canvas3D({
         event.stopPropagation()
         onConnectPoints?.(selectedStartPoint.name, point.name)
         setSelectedStartPoint(null)
-        setHoverTarget(null)
         setLocalSelection(null)
         lastPointPress.current = null
       }
@@ -529,7 +474,6 @@ export default function Canvas3D({
     setLocalSelection(null)
     onObjectSelect?.(null)
     setSelectedStartPoint(null)
-    setHoverTarget(null)
   }
   const remove = (id: string) => {
     const message = `hãy xóa đối tượng "${id}" khỏi canvas`
@@ -561,18 +505,17 @@ export default function Canvas3D({
         <>
           {pointTargets.map(point => {
             const isStart = point.name === selectedStartPoint.name
-            const isHoverTarget = point.name === hoverTarget?.name
             return (
               <mesh
                 key={`connection-target-${point.name}`}
                 position={point3(point.position)}
                 renderOrder={10}
               >
-                <sphereGeometry args={[isHoverTarget ? .2 : isStart ? .15 : .15, 16, 16]} />
+                <sphereGeometry args={[isStart ? .15 : .15, 16, 16]} />
                 <meshBasicMaterial
-                  color={isHoverTarget ? '#22C55E' : isStart ? '#2563EB' : '#F59E0B'}
+                  color={isStart ? '#2563EB' : '#F59E0B'}
                   transparent
-                  opacity={isHoverTarget ? .9 : .5}
+                  opacity={.5}
                   depthTest={false}
                   depthWrite={false}
                 />
@@ -580,14 +523,14 @@ export default function Canvas3D({
             )
           })}
           <Line
-            points={[point3(selectedStartPoint.position), hoverTarget ? point3(hoverTarget.position) : point3(selectedStartPoint.position)]}
-            color={hoverTarget ? '#16A34A' : '#2563EB'}
+            points={[point3(selectedStartPoint.position), point3(selectedStartPoint.position)]}
+            color='#2563EB'
             lineWidth={3}
-            dashed={!hoverTarget}
+            dashed
             dashSize={.15}
             gapSize={.1}
           />
-          <Html position={hoverTarget ? point3(hoverTarget.position) : point3(selectedStartPoint.position)} center style={{ pointerEvents: 'none' }}>
+          <Html position={point3(selectedStartPoint.position)} center style={{ pointerEvents: 'none' }}>
             <span style={{
               whiteSpace: 'nowrap',
               padding: '4px 8px',
@@ -596,9 +539,7 @@ export default function Canvas3D({
               color: '#1D4ED8',
               fontSize: 12,
             }}>
-              {hoverTarget
-                ? `Nhấp vào điểm ${hoverTarget.name} để nối`
-                : 'Nhấp vào điểm khác để vẽ đường thẳng'}
+              Nhấp vào điểm khác để vẽ đường thẳng
             </span>
           </Html>
         </>
@@ -613,11 +554,6 @@ export default function Canvas3D({
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
       ))}
-      <PointHoverDetector
-        selectedStartPoint={selectedStartPoint}
-        targets={pointTargets}
-        onHover={setHoverTarget}
-      />
       <OrbitControls makeDefault target={view.center}/>
       <FitCamera center={view.center} distance={view.distance}/>
     </Canvas>

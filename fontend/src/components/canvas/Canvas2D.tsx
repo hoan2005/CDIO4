@@ -193,7 +193,6 @@ export default function Canvas2D({
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [selectedStartPoint, setSelectedStartPoint] = useState<CanvasPointTarget | null>(null)
-  const [hoverTarget, setHoverTarget] = useState<CanvasPointTarget | null>(null)
   const lastPointPress = useRef<{ name: string; time: number } | null>(null)
 
   const objects2D = useMemo(() => {
@@ -237,7 +236,6 @@ export default function Canvas2D({
     if (onObjectSelect) onObjectSelect(null, 0, 0)
     setLocalSelection(null)
     setSelectedStartPoint(null)
-    setHoverTarget(null)
   }
 
   // Grid
@@ -321,7 +319,6 @@ export default function Canvas2D({
     // Nếu đang chọn menu, cuộn chuột làm mất vị trí => bỏ chọn
     setLocalSelection(null);
     setSelectedStartPoint(null);
-    setHoverTarget(null);
   }
 
   const handleMouseDown = (event: any) => {
@@ -347,18 +344,6 @@ export default function Canvas2D({
     if (!stage) return
     const pointer = stage.getPointerPosition()
     if (!pointer) return
-
-    // Track hover target when a start point is selected
-    if (selectedStartPoint) {
-      const target = pointTargets.find(point => {
-        if (point.name === selectedStartPoint.name) return false
-        const [x, y] = toCanvasPoint(point.position[0], point.position[1])
-        return Math.hypot(x - pointer.x, y - pointer.y) <= 22
-      })
-      setHoverTarget(target || null)
-    } else {
-      setHoverTarget(null)
-    }
 
     if (!isDragging) return
     const dx = pointer.x - dragStart.x
@@ -409,7 +394,7 @@ export default function Canvas2D({
     setIsDragging(false)
   }
 
-  const resetView = () => { setScale(40); setPan({ x: 0, y: 0 }); setLocalSelection(null); setSelectedStartPoint(null); setHoverTarget(null); }
+  const resetView = () => { setScale(40); setPan({ x: 0, y: 0 }); setLocalSelection(null); setSelectedStartPoint(null); }
 
   const hasObjects = objects2D.length > 0
   
@@ -837,15 +822,14 @@ export default function Canvas2D({
               {pointTargets.map(point => {
                 const [x, y] = toCanvasPoint(point.position[0], point.position[1])
                 const isStart = point.name === selectedStartPoint.name
-                const isHoverTarget = point.name === hoverTarget?.name
                 return (
                   <Circle
                     key={`connection-target-${point.name}`}
                     x={x}
                     y={y}
-                    radius={isHoverTarget ? 12 : isStart ? 10 : 9}
-                    fill={isHoverTarget ? '#22C55E' : isStart ? '#2563EB' : '#F59E0B'}
-                    opacity={isHoverTarget ? 0.9 : isStart ? 0.7 : 0.55}
+                    radius={isStart ? 10 : 9}
+                    fill={isStart ? '#2563EB' : '#F59E0B'}
+                    opacity={isStart ? 0.7 : 0.55}
                     stroke="#FFFFFF"
                     strokeWidth={2}
                     listening={false}
@@ -855,21 +839,17 @@ export default function Canvas2D({
               <Line
                 points={[
                   ...toCanvasPoint(selectedStartPoint.position[0], selectedStartPoint.position[1]),
-                  ...(hoverTarget
-                    ? toCanvasPoint(hoverTarget.position[0], hoverTarget.position[1])
-                    : toCanvasPoint(selectedStartPoint.position[0], selectedStartPoint.position[1])),
+                  ...toCanvasPoint(selectedStartPoint.position[0], selectedStartPoint.position[1]),
                 ]}
-                stroke={hoverTarget ? '#16A34A' : '#2563EB'}
+                stroke="#2563EB"
                 strokeWidth={3}
-                dash={hoverTarget ? undefined : [8, 5]}
+                dash={[8, 5]}
                 listening={false}
               />
               <Text
                 x={12}
                 y={12}
-                text={hoverTarget
-                  ? `Nhấp vào điểm ${hoverTarget.name} để nối`
-                  : 'Nhấp vào điểm khác để nối đường thẳng'}
+                text="Nhấp vào điểm khác để nối đường thẳng"
                 fontSize={13}
                 fill="#1D4ED8"
                 listening={false}
