@@ -16,6 +16,23 @@ thao tác vẽ rồi trả kết quả về frontend.
 - Lưu trạng thái hội thoại và đối tượng canvas theo `conversation_id`.
 - Kiểm tra ràng buộc, tọa độ và các phép dựng hình trước khi cập nhật canvas.
 
+## Cách đọc và thao tác với hình vẽ
+
+| Tình huống | Hành vi của hệ thống |
+|---|---|
+| Đề cho độ dài hoặc góc | Với hình minh họa (`drawing_mode="sketch"`), mô hình có thể chọn tọa độ dễ nhìn. Backend kiểm tra thứ tự lớn, bé, bằng nhau của các số đo minh họa được khai báo và loại góc nhọn, vuông, tù. Lời giải dùng dữ kiện đề bài. Khi đề cho tọa độ hoặc yêu cầu đúng tỉ lệ, mô hình được hướng dẫn dùng quy trình chính xác. |
+| Muốn ghi “9 cm” trên AB | Có thể cho số đo ngay từ đầu hoặc yêu cầu “Thêm nhãn 9 cm cho cạnh AB”. Nhãn bám theo điểm neo; sửa nhãn không đổi tọa độ. Canvas hiển thị nội dung nhãn do kế hoạch truyền xuống, gồm chữ, đơn vị và ký hiệu cho cạnh, góc, điểm, bán kính, đường kính hoặc chiều cao. |
+| Bài cần đường phụ | Canvas đọc quan hệ và phép dựng để hiện nét cần thiết. Ví dụ, hình chiếu của P lên đường UV có đoạn nối P với chân chiếu. Trong 3D, mặt phẳng được tham chiếu bằng ba đỉnh được minh họa bằng một tam giác tô nhẹ. Nếu lời giải cần thêm một đoạn chưa có trong dữ kiện, kế hoạch phải yêu cầu vẽ đoạn đó. |
+| Nối hai điểm bằng chuột | Trong hội thoại đang mở, nhấp đúp điểm đầu rồi nhấp một điểm khác trên canvas 2D hoặc 3D để thêm đoạn nối vào hình. |
+| Bắt đầu lại | Nút **Xóa hội thoại và hình vẽ** trên thanh chat xóa tin nhắn, hình và ngữ cảnh phía máy chủ của hội thoại hiện tại. Tin nhắn kế tiếp bắt đầu hội thoại mới. |
+
+## Từ câu hỏi đến hình vẽ
+
+1. Frontend gửi câu hỏi và mã hội thoại đến FastAPI. [chatService.ts](fontend/src/services/chatService.ts)
+2. Gemini lập kế hoạch dựa trên đề bài và trạng thái hiện tại. Kế hoạch có thể yêu cầu trả lời, hỏi lại, dựng điểm, vẽ hoặc cập nhật đối tượng. [orchestrator.py](backend/orchestrator/orchestrator.py)
+3. Với tác vụ hình học, backend tập hợp tọa độ và ràng buộc, tính điểm phụ thuộc, giải các ràng buộc tọa độ bằng SciPy khi cần rồi kiểm định kết quả. Khi kiểm định thất bại, backend trả thông tin lỗi trước bước vẽ. [xuly_chatbot.py](backend/controller/xuly_chatbot.py) · [geometry_solver_pipeline.py](backend/geometry_validator/geometry_solver_pipeline.py)
+4. Bộ thực thi cập nhật trạng thái của hội thoại. Frontend nhận lời đáp và danh sách đối tượng thêm, sửa, xóa. Canvas dùng dữ liệu đối tượng để đặt nhãn và dựng nét phụ theo tọa độ hiện tại. [execution_controller.py](backend/controller/execution_controller.py) · [measurementLabels.ts](fontend/src/utils/measurementLabels.ts) · [geometryGuides.ts](fontend/src/utils/geometryGuides.ts)
+
 ## Công nghệ
 
 | Thành phần | Công nghệ |
@@ -52,7 +69,7 @@ thao tác vẽ rồi trả kết quả về frontend.
 
 ## Yêu cầu
 
-- Python 3.10 trở lên.
+- Python (môi trường phát triển dùng Python 3.12).
 - Node.js và npm.
 - API key Google Gemini để sử dụng các tính năng AI.
 
@@ -67,14 +84,14 @@ Tạo môi trường ảo và cài các thư viện backend:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install fastapi uvicorn pydantic-settings sqlalchemy python-dotenv \
-  google-genai sympy numpy scipy
+python -m pip install -r requirements.txt
 ```
 
 Trên Windows PowerShell, kích hoạt môi trường bằng:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
 Thiết lập các biến môi trường cần thiết. `PROJECT_NAME` và `PORT` được đọc khi
@@ -89,6 +106,10 @@ export GEMINI_MODEL="gemini-3.5-flash-lite"
 ```
 
 Không đưa API key vào mã nguồn hoặc commit API key lên Git.
+
+Trong PowerShell, dùng `$env:PROJECT_NAME = "Gia su Toan AI"`,
+`$env:PORT = "8000"` và `$env:GEMINI_API_KEY = "your_gemini_api_key"` trong
+terminal chạy backend. Có thể đặt `GEMINI_ANSWER_MODEL` để chọn riêng mô hình trả lời.
 
 Khởi chạy backend:
 
@@ -106,7 +127,7 @@ Trong terminal thứ hai, từ thư mục gốc:
 
 ```bash
 cd fontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -131,9 +152,16 @@ Endpoint chính là `POST /chat`. Request gồm mã hội thoại và nội dung
 }
 ```
 
-Để bắt đầu hội thoại mới, có thể truyền `conversation_id` rỗng. Backend phản
-hồi nội dung trợ lý cùng các thay đổi canvas (`add`, `update`, `remove`) để
-frontend cập nhật giao diện.
+Frontend tạo một UUID cho hội thoại mới và tái sử dụng ID này ở các lượt sau.
+Client gọi API trực tiếp cũng nên cấp ID riêng: nếu gửi chuỗi rỗng tới
+`/chat`, backend dùng chung ID mặc định `default_conversation`. Phản hồi
+chat chứa lời đáp và các thay đổi canvas (`add`, `update`, `remove`).
+
+| API | Dữ liệu gửi | Kết quả |
+|---|---|---|
+| `POST /canvas/connect-points` | `conversation_id`, `start_point`, `end_point` | Lưu và trả về đoạn nối hai điểm đã có. |
+| `POST /canvas/clear` | `conversation_id` | Xóa hình và dữ liệu hình học, giữ lịch sử chat. |
+| `DELETE /conversations/{conversation_id}` | ID trên đường dẫn | Xóa toàn bộ trạng thái hội thoại. Trả HTTP 204. Đây là API của nút xóa trên thanh chat. |
 
 ### Phép dựng hình 2D/3D
 
@@ -200,6 +228,20 @@ cùng tên hoặc nhiều đối tượng phù hợp, bổ sung mô tả như �
 3D bên phải” để AI có thể hỏi lại khi vẫn chưa xác định duy nhất được.
 
 ## Kiểm thử
+
+Trên Windows PowerShell, từ thư mục gốc:
+
+```powershell
+$env:PYTHONPATH = "backend"
+.\.venv\Scripts\python.exe -m unittest discover -s backend/test
+cd fontend
+node --test tests/point-connection.test.mjs
+npm.cmd run build
+```
+
+Bài kiểm tra frontend mô phỏng luồng chọn hai điểm; lệnh build kiểm tra
+TypeScript và đóng gói giao diện. Để kiểm tra toàn bộ luồng chat qua Gemini,
+cần backend có API key và frontend đang chạy.
 
 Từ thư mục gốc, kích hoạt môi trường Python rồi chạy:
 
