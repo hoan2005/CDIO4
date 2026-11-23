@@ -135,13 +135,14 @@ export const useAppStore = create<AppState>(
     // SEND MESSAGE
     // ========================================================
 
-    sendMessage: async (text: string) => {
+    sendMessage: async (text, attachments) => {
+      if (get().isLoading) return
 
       // ------------------------------------------------------
       // Lấy conversation hiện tại
       // ------------------------------------------------------
 
-      const conversationId = get().conversationId
+      const conversationId = get().conversationId ?? crypto.randomUUID()
 
 
       // ------------------------------------------------------
@@ -154,6 +155,7 @@ export const useAppStore = create<AppState>(
         role: 'user',
 
         content: text,
+        attachments,
 
         timestamp: Date.now(),
       }
@@ -191,6 +193,7 @@ export const useAppStore = create<AppState>(
         ],
 
         isLoading: true,
+        conversationId,
 
       }))
 
@@ -204,11 +207,11 @@ export const useAppStore = create<AppState>(
         const response = await chatService.send({
 
           conversation_id:
-            conversationId ?? '',
+            conversationId,
 
           message: text,
 
-        })
+        }, attachments)
 
 
         // ====================================================
@@ -299,7 +302,7 @@ export const useAppStore = create<AppState>(
           role: 'assistant',
 
           content:
-            '⚠️ Không thể kết nối server. Hãy kiểm tra backend đang chạy.',
+            error instanceof Error ? `⚠️ ${error.message}` : '⚠️ Không thể gửi câu hỏi.',
 
           timestamp: Date.now(),
 
@@ -328,6 +331,7 @@ export const useAppStore = create<AppState>(
     },
 
     connectCanvasPoints: async (startPoint: string, endPoint: string) => {
+      if (get().isLoading) return
       const conversationId = get().conversationId
       if (!conversationId) {
         set(state => ({
@@ -344,6 +348,7 @@ export const useAppStore = create<AppState>(
         return
       }
 
+      set({ isLoading: true })
       try {
         const line = await chatService.connectPoints(
           conversationId,
@@ -365,6 +370,8 @@ export const useAppStore = create<AppState>(
             },
           ],
         }))
+      } finally {
+        set({ isLoading: false })
       }
     },
 
@@ -438,7 +445,7 @@ export const useAppStore = create<AppState>(
 
         canvasMode: objects.some(object => object.dimension === '3d')
           ? '3d'
-          : state.canvasMode,
+          : objects.some(object => object.dimension === '2d') ? '2d' : state.canvasMode,
 
       }))
 
@@ -560,6 +567,26 @@ export const useAppStore = create<AppState>(
     // ========================================================
     // CLEAR CANVAS
     // ========================================================
+
+    deleteConversation: async () => {
+      const { conversationId, isLoading } = get()
+      if (isLoading) return
+      set({ isLoading: true })
+      try {
+        if (conversationId) await chatService.deleteConversation(conversationId)
+        set({
+          conversationId: null, messages: [], canvasObjects: [],
+          selectedObject: { id: null, x: null, y: null },
+        })
+      } catch {
+        set(state => ({ messages: [...state.messages, {
+          id: makeId(), role: 'assistant', timestamp: Date.now(),
+          content: 'Chưa xóa được hội thoại. Bạn hãy thử lại.',
+        }] }))
+      } finally {
+        set({ isLoading: false })
+      }
+    },
 
     clearCanvas: async () => {
       if (get().isLoading) {

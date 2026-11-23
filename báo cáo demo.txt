@@ -1,0 +1,687 @@
+BÁO CÁO DEMO TRƯỚC HỘI ĐỒNG
+GIA SƯ TOÁN AI — CHAT ĐA PHƯƠNG THỨC VÀ MINH HỌA TOÁN 2D/3D
+Ngày cập nhật: 22/11/2026
+
+MỤC LỤC
+01. Tóm tắt đề tài và mục tiêu
+02. Kiến trúc và vai trò của từng công nghệ
+03. Luồng xử lý đầy đủ từ câu hỏi đến lời giải và hình vẽ
+04. Xử lý dữ liệu, hình học, đồ thị và trạng thái hội thoại
+05. Hợp đồng API và vị trí mã nguồn
+06. Chuẩn bị môi trường và diễn tập
+07. Kịch bản demo 8–10 phút và các ca mở rộng
+08. Tình huống phát sinh, chẩn đoán và xử lý
+09. Chi phí, dữ liệu và giới hạn triển khai
+10. Kết quả kiểm thử và tiêu chí nghiệm thu
+11. Câu hỏi hội đồng có thể đặt và gợi ý trả lời
+12. Lời mở đầu, lời kết và checklist trước giờ diễn
+
+======================================================================
+01. TÓM TẮT ĐỀ TÀI VÀ MỤC TIÊU
+======================================================================
+
+Gia sư Toán AI là ứng dụng web giúp học sinh đặt câu hỏi bằng tiếng Việt,
+nhận lời giải và quan sát biểu diễn trực quan trên canvas. Người dùng có
+thể nhập chữ, đính kèm ảnh đề bài và ghi âm lời hỏi. Hình minh họa thuộc
+chính hội thoại đó, nên người dùng có thể yêu cầu dựng thêm, sửa hoặc xóa
+đối tượng ở những lượt sau.
+
+Ba vấn đề đề tài giải quyết:
+  1. Giảm công nhập đề dài, nhất là đề có công thức và hình vẽ.
+  2. Tạo hình từ yêu cầu tiếng Việt để người học thấy quan hệ giữa các
+     điểm, đường, mặt phẳng, đồ thị và miền tích phân.
+  3. Giảm sai lệch hình học bằng cách tách lập kế hoạch bằng AI khỏi tính
+     toán tọa độ, kiểm định ràng buộc và thực thi trong backend.
+
+Phạm vi demo: tư vấn bài Toán, công thức Markdown/LaTeX, hình học phẳng
+và không gian, đồ thị hàm số THPT, tiếp tuyến, miền diện tích, biểu đồ
+tần số ghép nhóm. Audio phục vụ câu hỏi đầu vào. Phản hồi gồm lời giải
+dạng chữ và dữ liệu canvas.
+
+Các dấu hiệu thành công có thể quan sát trực tiếp:
+  - Câu hỏi thuần toán hiện lời giải và công thức.
+  - Với lệnh dựng hình, chat và canvas phản ánh cùng một tập dữ kiện.
+  - Lượt hỏi sau tham chiếu được hình đã dựng trong cùng hội thoại.
+  - Ảnh và bản ghi có thể xem/nghe trước khi gửi.
+  - Với yêu cầu thiếu dữ kiện hoặc mâu thuẫn, hệ thống có thể yêu cầu
+    bổ sung hoặc báo lý do dừng dựng.
+
+======================================================================
+02. KIẾN TRÚC VÀ VAI TRÒ CỦA TỪNG CÔNG NGHỆ
+======================================================================
+
+   Người học → React / TypeScript
+                  │  POST /chat: chữ, ảnh, bản ghi
+                  ▼
+            FastAPI + Pydantic
+                  │
+                  ├─ Có tệp → Gemini trích đề / chép lời
+                  │                  │
+                  │      Câu hỏi đã bổ sung dữ kiện
+                  ▼                  ▼
+          Orchestrator + trạng thái hội thoại
+                  │  Kế hoạch tác vụ JSON
+                  ├─ Hỏi lại → Phản hồi chữ
+                  ├─ Giải toán thuần → Gemini viết lời giải
+                  └─ Dựng hình → Tính / kiểm định / thực thi
+                                       │
+                            lời giải + canvas delta
+                                       ▼
+              React Markdown / KaTeX + Canvas 2D hoặc 3D
+
+Frontend
+  - React xây dựng thành phần chat, xem trước tệp, panel và canvas.
+  - TypeScript định nghĩa kiểu tin nhắn, request, response, đối tượng
+    hình học và các thao tác trạng thái.
+  - Vite cung cấp máy chủ phát triển và quy trình đóng gói.
+  - Zustand giữ ID hội thoại, tin nhắn, trạng thái chờ phản hồi, đối
+    tượng canvas và chế độ hiển thị trong phiên giao diện.
+  - React Markdown, remark-math, remark-gfm và rehype-katex hiển thị
+    Markdown, bảng và công thức toán.
+  - React-Konva hiển thị hình 2D. Three.js qua React Three Fiber/Drei
+    hiển thị cảnh 3D và cho phép thay đổi góc quan sát.
+  - getUserMedia xin quyền microphone. MediaRecorder ghi âm. Blob URL
+    dùng để xem/nghe tại chỗ. FileReader chuẩn bị Base64 gửi trong JSON.
+
+Backend
+  - Python triển khai bộ điều phối, tính toán hình học và trạng thái.
+  - FastAPI cung cấp API, tài liệu Swagger tại /docs. Uvicorn chạy API.
+  - Pydantic định nghĩa cấu trúc request, định dạng và giới hạn tệp.
+  - Google Gemini Developer API qua SDK google-genai xử lý dữ liệu
+    đa phương thức, tạo kế hoạch và viết lời giải. Model mặc định
+    trong mã là gemini-3.5-flash-lite.
+  - SymPy xử lý biểu thức, đạo hàm, miền xác định và đặc trưng đồ thị
+    trong các dạng được hỗ trợ. NumPy phục vụ tính toán số, vectơ và
+    mảng. SciPy hỗ trợ giải ràng buộc tọa độ bằng phương pháp số.
+  - StateManager lưu ngữ cảnh theo conversation_id trong bộ nhớ tiến
+    trình. Cấu hình hiện tại ưu tiên luồng Python/SciPy. Các adapter
+    native PlaneGCS/SolveSpace có trong repo và đang tắt theo mặc định.
+
+Lý do chọn kiến trúc
+  - Text, ảnh và giọng nói hội tụ thành một câu hỏi có thể đưa vào cùng
+    pipeline. Việc cải tiến một phép dựng áp dụng cho cả ba đầu vào.
+  - Gemini phù hợp để hiểu yêu cầu tự nhiên, lập kế hoạch và diễn đạt.
+    Backend có thể kiểm tra các đại lượng tính được, từ đó giải thích
+    vì sao chấp nhận hoặc từ chối một hình.
+  - Tách renderer 2D/3D phù hợp với khác biệt về lưới, phép chiếu, camera
+    và thao tác chọn điểm. Hai renderer dùng dữ liệu canvas đã thực thi.
+
+======================================================================
+03. LUỒNG XỬ LÝ ĐẦY ĐỦ
+======================================================================
+
+3.1. Từ trình duyệt đến API
+  1. Người dùng nhập chữ hoặc chọn ảnh JPG, PNG, WebP tối đa 5 MiB.
+  2. Khi bấm Ghi âm, trình duyệt xin quyền micro và chọn định dạng
+     tương thích trong WebM/Opus, Ogg/Opus hoặc MP4. Sau khi dừng hoặc
+     chạm mốc 60 giây, ứng dụng tạo bản ghi để nghe lại. Dung lượng
+     bản ghi tối đa 2 MiB. Người dùng có thể bỏ từng tệp trước khi gửi.
+  3. Khi bấm Gửi, frontend dùng UUID của hội thoại hoặc tạo UUID mới.
+     Tin nhắn người dùng và trạng thái đang xử lý được đưa lên giao diện.
+  4. Frontend gửi JSON đến POST /chat. Ảnh và bản ghi chứa MIME và Base64.
+     Audio ghi dạng MP4 được gửi với MIME audio/m4a cho Gemini.
+  5. Backend yêu cầu ít nhất một đầu vào có nội dung. Với tệp, backend
+     kiểm tra MIME theo danh sách cho phép, độ dài chuỗi Base64, tính
+     hợp lệ khi giải mã và số byte sau giải mã.
+
+3.2. Nhánh có ảnh hoặc audio
+  1. Backend gom chữ và các tệp thành các phần nội dung trong cùng một
+     lượt gọi Gemini để trích xuất.
+  2. Ảnh: yêu cầu chép đề, giữ số liệu, dấu và công thức, mô tả tên điểm
+     và quan hệ nhìn thấy trong hình. Audio: yêu cầu chép lời câu hỏi.
+  3. Gemini trả JSON có content và clarification. Nếu phần thiết yếu
+     bị mờ hoặc khó nghe và Gemini báo clarification, API trả yêu cầu
+     bổ sung. Nếu nội dung trích xuất rỗng, API hướng dẫn gửi lại.
+  4. Khi trích được nội dung, backend ghép chữ người dùng nhập với
+     phần trích, rồi chuyển vào cùng hàm xuly_thongtin như chat chữ.
+     Nhánh chỉ nhập chữ đi thẳng tới hàm này.
+  Ví dụ: ảnh cho y = x², bản ghi nói “Vẽ tiếp tuyến tại x bằng một”.
+  Pipeline nhận dữ kiện từ ảnh và yêu cầu từ bản ghi trong cùng lượt.
+
+3.3. Lập kế hoạch
+  1. StateManager cung cấp snapshot hiện tại: lịch sử gần, đối tượng
+     canvas, vùng focus, tọa độ, quan hệ và điểm đã dựng.
+  2. Orchestrator gửi câu hỏi và ngữ cảnh cho Gemini, yêu cầu JSON.
+     Task có id, domain, operation, input và có thể có depends_on.
+  3. Python kiểm tra cấu trúc và operation, giải quyết tham chiếu như
+     “đường AB” hoặc “điểm vừa vẽ”. Plan có thể yêu cầu hỏi lại.
+  4. Nhánh hỏi lại trả lời bằng chữ. Nhánh giải toán thuần viết lời giải
+     bằng Gemini và giữ nguyên canvas. Nhánh dựng hình kiểm tra và
+     thực thi các task vẽ theo thứ tự phụ thuộc.
+
+3.4. Kiểm định và dựng hình
+  1. Chuẩn hóa dữ kiện và tập hợp tọa độ, constraints, điểm cố định,
+     điểm có thể sửa và phép dựng.
+  2. Tính điểm dựng bằng công thức. Ví dụ, với u = B − A và A khác B,
+     hình chiếu của P lên đường AB là A + [(P − A)·u / (u·u)]u.
+  3. Khi cần, giải hệ ràng buộc tọa độ bằng SciPy đối với điểm được phép
+     chỉnh. Nghiệm số được kiểm định lại theo ràng buộc và sai số.
+  4. Nếu kiểm định trước bước vẽ thất bại, trả lỗi/nhắc bổ sung và dừng
+     trước khi thực thi các task vẽ của lượt đó. Điểm cố định do người
+     dùng cung cấp được bảo vệ khỏi bước sửa tọa độ.
+  5. ExecutionController chọn hàm toán/vẽ theo operation, chạy và ghi
+     kết quả từng task. Task phụ thuộc bị bỏ qua nếu task nguồn lỗi.
+     Nếu lỗi phát sinh trong lúc thực thi, task đã commit có thể vẫn
+     tồn tại. Đây là hành vi khác với lỗi kiểm định trước khi vẽ.
+  6. Lời giải sau khi vẽ có thể sử dụng tọa độ và kết quả đã thực thi.
+
+3.5. Phản hồi và lượt tiếp theo
+  - API trả lời đáp cùng canvas.add, canvas.update, canvas.remove.
+  - Zustand áp dụng delta để thêm, thay thế hoặc xóa đúng đối tượng.
+  - Renderer hiển thị tọa độ, nhãn, nét phụ và các điểm đặc trưng.
+  - Người dùng có thể tiếp tục “Dựng M là trung điểm AB”, “Di chuyển A
+    đến ...” hoặc “Xóa đường AB”. Cùng conversation_id giữ tham chiếu.
+  - Có thể nhấp đúp điểm đầu rồi nhấp điểm cuối để nối hai điểm 2D/3D.
+
+======================================================================
+04. XỬ LÝ DỮ LIỆU, HÌNH HỌC, ĐỒ THỊ VÀ HỘI THOẠI
+======================================================================
+
+Hình minh họa và hình chính xác
+  - Với sketch, tọa độ có thể được chọn để hình dễ nhìn. Backend kiểm
+    tra các quan hệ số đo minh họa được khai báo, như AB dài hơn AC
+    hoặc góc thuộc loại nhọn/vuông/tù. Nhãn “9 cm” là dữ kiện đề và
+    gắn vào điểm neo. Độ dài pixel còn phụ thuộc tỉ lệ và camera.
+  - Khi cần độ chính xác, nêu tọa độ hoặc yêu cầu đúng tỉ lệ. Đối
+    chiếu tọa độ, số đo, phương trình hoặc kết quả số để kiểm chứng.
+  - Một ràng buộc có trạng thái verified hoặc llm_supported tùy cách
+    kiểm tra. Khi trình bày, dùng ví dụ trung điểm/hình chiếu để chỉ
+    rõ phép tính được kiểm tra bằng công thức.
+
+Đồ thị phụ thuộc hình học
+  - Geometry model giữ chỉ mục điểm và đối tượng cùng quan hệ phụ
+    thuộc. Ví dụ A,B → M; M,B,C → H nếu H là hình chiếu của M lên BC.
+  - Khi A thay đổi, M được tính lại, sau đó H được cập nhật và đồng
+    bộ lên các đối tượng dùng chung điểm.
+  - Khi xóa nguồn, hệ thống xem xét những điểm còn được cung cấp bởi
+    các đối tượng khác. Đối tượng phụ thuộc mất nguồn có thể bị xóa.
+  - Với 3D, “qua P dựng đường vuông góc AB” thường chưa đủ để xác định
+    một phương duy nhất. Bổ sung mặt phẳng hợp lệ hoặc điểm tham chiếu.
+
+Đồ thị THPT và thống kê
+  - Vẽ đường cong bằng các điểm lấy mẫu, tách nhánh tại điểm gián đoạn
+    nhận diện được. Có thể lập marker cực trị, điểm khuyết, tiếp điểm
+    hoặc đường tiệm cận theo dạng hàm và yêu cầu.
+  - Tô miền giữa hai đường: chia các phần tại giao điểm. Diện tích được
+    giải thích bằng tích phân của giá trị tuyệt đối hiệu hai hàm.
+    Luồng tô hiện yêu cầu các hàm liên tục trên đoạn đang tô.
+  - Oxyz: mặt phẳng có pháp tuyến, đường thẳng có vectơ chỉ phương,
+    mặt cầu có tâm và bán kính; có thể dựng hình trụ/hình nón theo trục.
+  - Histogram với nhóm khác độ rộng: chiều cao = tần số / độ rộng,
+    vì khi đó diện tích cột biểu thị tần số. Với nhóm cùng độ rộng,
+    phiên bản hiện tại dùng tần số làm chiều cao.
+
+Quản lý ngữ cảnh
+  - Lịch sử và hình được giữ theo conversation_id của tiến trình đang
+    chạy. Xóa canvas qua API giữ lịch sử chữ. Nút “Xóa hội thoại và
+    hình vẽ” xóa toàn bộ hội thoại hiện tại và phiên sau có ID mới.
+  - Sau khi backend khởi động lại, trạng thái trong RAM mất. Reload
+    frontend cũng có thể kết thúc trạng thái của phiên giao diện.
+
+======================================================================
+05. HỢP ĐỒNG API VÀ VỊ TRÍ MÃ NGUỒN
+======================================================================
+
+POST /chat
+  Dữ liệu chữ: {"conversation_id":"demo-01","message":"Tính đạo hàm của x^2"}
+  Dữ liệu có tệp gồm các trường sau. Chuỗi Base64 bên dưới là ký hiệu
+  minh họa, khi gọi thực tế phải thay bằng dữ liệu tệp đã mã hóa.
+
+  {
+    "conversation_id": "demo-02",
+    "message": "Hãy vẽ hình theo đề",
+    "image": {"mime_type": "image/png", "data": "<base64 ảnh>"},
+    "audio": {"mime_type": "audio/webm", "data": "<base64 bản ghi>"}
+  }
+
+  Có thể bỏ trường không dùng. message có thể rỗng khi có ít nhất một
+  tệp. Frontend tạo UUID riêng cho mỗi hội thoại. Khi gọi API trực tiếp
+  nên cấp ID riêng để tránh dùng chung ID mặc định.
+
+  Phản hồi rút gọn minh họa:
+  {
+    "conversation_id": "demo-01",
+    "message": {"role": "assistant", "content": "Đạo hàm là 2x."},
+    "canvas": {"add": [], "update": [], "remove": []},
+    "success": true,
+    "errors": []
+  }
+  Trình diễn API chỉ nên mở request chữ để hội đồng dễ đọc. Khi có tệp,
+  Base64 dài. JSON phản hồi có thể còn các trường metadata khác như
+  id, timestamp và báo cáo validation.
+
+POST /canvas/connect-points
+  Gửi conversation_id, start_point, end_point. Trả đối tượng đoạn nối.
+POST /canvas/clear
+  Gửi conversation_id. Xóa hình của hội thoại, giữ lịch sử chat.
+DELETE /conversations/{conversation_id}
+  Xóa trạng thái hội thoại. Thành công trả HTTP 204.
+
+Mở mã nguồn khi hội đồng hỏi về phần triển khai
+  - fontend/src/components/chat/ChatInput.tsx: chọn ảnh và ghi âm.
+  - fontend/src/components/chat/AttachmentPreview.tsx: xem/nghe tệp.
+  - fontend/src/services/chatService.ts: Base64 và gọi API.
+  - fontend/src/store/useAppStore.ts: hội thoại và áp dụng canvas delta.
+  - backend/chemas/chatbot.py: cấu trúc và giới hạn request.
+  - backend/router/chatbot.py: API và nhánh trích xuất đa phương thức.
+  - backend/orchestrator/llm_client.py: gọi Google Gemini.
+  - backend/orchestrator/orchestrator.py: lập và kiểm tra plan.
+  - backend/controller/xuly_chatbot.py: điều phối lượt chat.
+  - backend/geometry_validator/: dựng điểm, giải và kiểm định.
+  - backend/controller/execution_controller.py: thực thi và commit.
+  - backend/state/state_manager.py: trạng thái và cập nhật phụ thuộc.
+  - backend/math_engine/draw/function_graph.py: thuật toán đồ thị.
+  - fontend/src/components/canvas/Canvas2D.tsx và Canvas3D.tsx:
+    hiển thị đối tượng và nhận thao tác canvas.
+
+======================================================================
+06. CHUẨN BỊ MÔI TRƯỜNG VÀ DIỄN TẬP
+======================================================================
+
+Cài trước buổi demo. Hai terminal PowerShell mở tại thư mục gốc.
+Tên thư mục giao diện trong repo là fontend.
+
+Terminal 1 — cài backend lần đầu
+  python -m venv .venv
+  .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+Terminal 1 — mỗi lần chạy backend
+  $env:PROJECT_NAME = 'Gia su Toan AI'
+  $env:PORT = '8000'
+  $env:GEMINI_API_KEY = '<key của project Gemini Free Tier>'
+  cd backend
+  ..\.venv\Scripts\python.exe main.py
+
+Giá trị key phải được thiết lập riêng trước khi chiếu màn hình. Dùng
+biến môi trường trong terminal của backend để cấu hình rõ ràng. Mở
+http://localhost:8000/docs để xác nhận API đã khởi động. Swagger sẵn
+sàng cho biết web server chạy, còn một câu hỏi thật kiểm tra được
+đường kết nối Gemini, key và quota.
+
+Terminal 2 — frontend
+  cd fontend
+  npm.cmd ci
+  npm.cmd run dev
+
+Mở http://localhost:5173. Frontend hiện gọi cổng API 8000. Backend
+cho phép origin http://localhost:5173. Nếu Vite đổi sang cổng 5174
+do cổng 5173 đang bận, giải phóng cổng cũ hoặc đồng bộ cấu hình CORS
+trước khi demo. Giữ một cửa sổ trình duyệt đã cấp quyền microphone.
+
+Chuẩn bị vật liệu
+  - Một ảnh PNG rõ nét, nội dung tự soạn: “Cho hàm số y = x². Vẽ đồ
+    thị và tiếp tuyến tại điểm có hoành độ bằng 1.” Một phiên bản
+    demo nâng cao có thể dùng ảnh chỉ chứa đề “Cho hàm số y = x²”
+    và đưa yêu cầu vẽ tiếp tuyến qua microphone.
+  - Chuẩn bị lời ghi âm ngắn từ 5–10 giây. Đứng gần micro và đọc
+    rõ các số, dấu âm, ký hiệu và tên điểm.
+  - Tập trước các câu lệnh ở mục 07 bằng key và thiết bị sẽ dùng.
+    Lưu ảnh chụp màn hình hoặc video diễn tập cho các ca vừa chạy.
+    Khi dùng bản ghi dự phòng, giới thiệu đó là kết quả diễn tập.
+  - Mở sẵn hai terminal, Swagger và kho mã nguồn. Giữ terminal ở
+    nơi có thể xem lỗi mà không chiếu biến môi trường.
+
+======================================================================
+07. KỊCH BẢN DEMO 8–10 PHÚT VÀ CÁC CA MỞ RỘNG
+======================================================================
+
+0:00–0:55 — Mở đầu
+  Nêu vấn đề: đề Toán thường có công thức hoặc hình nên nhập nguyên
+  văn mất thời gian. Trình bày ba đầu vào và hai dạng đầu ra. Chỉ
+  nhanh khung chat và canvas trước khi thao tác.
+
+0:55–1:45 — Ca A. Giải bằng chữ
+  Gửi “Tính đạo hàm của f(x) = x^3 - 3x + 1 và giải thích từng bước.”
+  Kết quả đối chiếu: f′(x) = 3x² − 3. Quan sát công thức kết xuất rõ,
+  khung chat trả lời bằng chữ. Nếu có ai hỏi AI dùng ở đâu, giải thích
+  Gemini nhận diện đây là yêu cầu giải toán và soạn lời giải.
+
+1:45–3:30 — Ca B. Ảnh kết hợp ghi âm
+  1. Chọn ảnh có đề “Cho hàm số y = x²”.
+  2. Bấm Ghi âm, đọc “Vẽ đồ thị và tiếp tuyến tại điểm có hoành độ
+     bằng một”, rồi bấm Dừng ghi âm.
+  3. Chỉ phần ảnh xem trước và phát lại vài giây bản ghi. Bấm Gửi.
+  4. Kết quả cần đối chiếu: parabol qua gốc, tiếp điểm (1, 1), hệ số
+     góc 2, tiếp tuyến y = 2x − 1.
+  5. Thuyết minh rằng hai đầu vào được ghép trong một bước trích xuất
+     và yêu cầu vẽ tiếp tuyến đi vào cùng bộ xử lý đồ thị.
+  6. Dự phòng trong lúc demo: chỉ gửi ảnh có đầy đủ câu hỏi, hoặc
+     chọn ảnh y = x² và gõ phần yêu cầu. Một ca ghi âm riêng có thể
+     dùng câu “Tính đạo hàm của x bình phương”.
+
+3:30–5:10 — Ca C. Dựng 2D và tiếp tục theo ngữ cảnh
+  Dùng hội thoại mới nếu muốn màn hình chỉ hiện hình học.
+  Lượt 1: “Trong 2D, vẽ tam giác ABC với A(0,0), B(4,0), C(0,3).
+           Dựng M là trung điểm của AB.”
+  Đối chiếu: A,B,C cố định theo đề, M = (2,0).
+  Lượt 2: “Dựng H là hình chiếu vuông góc của M lên đường thẳng BC.”
+  Đối chiếu: BC có phương trình 3x + 4y = 12,
+  H = (68/25, 24/25). Đoạn MH vuông góc BC.
+  Có thể nhấp đúp M rồi nhấp C để minh họa nối đoạn MC.
+  Nếu còn thời gian, yêu cầu “Di chuyển A đến (0,-2)”. Khi hệ thống
+  thực thi cập nhật A và giữ phép dựng, trung điểm M mới là (2,-1).
+
+5:10–6:40 — Ca D. Dựng 3D với kết quả kiểm chứng được
+  Dùng hội thoại mới. Gửi “Trong 3D, vẽ tứ diện ABCD với A(0,0,0),
+  B(4,0,0), C(0,3,0), D(1,1,4). Dựng H là hình chiếu vuông góc
+  của D lên mặt phẳng ABC.”
+  Đối chiếu: mặt phẳng ABC là z = 0, H = (1,1,0), DH = 4. Xoay
+  góc nhìn để thấy H cùng mặt phẳng đáy và đoạn DH theo phương z.
+
+6:40–7:35 — Ca E. Thử đầu vào thiếu dữ kiện hoặc mâu thuẫn
+  Chọn một câu đã diễn tập:
+  - “Qua D, dựng đường vuông góc với AB trong 3D” và không cho mặt
+    phẳng hay phương tham chiếu. Trình bày vì sao có nhiều phương.
+    Nếu giao diện hỏi thêm, bổ sung mặt phẳng phù hợp, ví dụ ABD.
+  - Trong hội thoại mới: “Vẽ tam giác 2D với A(0,0), B(4,0), C(0,3)
+    cố định và yêu cầu AB = 5 theo đúng tỉ lệ.” Dữ kiện xung đột vì
+    AB = 4. Kỳ vọng là lời báo mâu thuẫn, câu hỏi làm rõ hoặc
+    phản hồi kiểm định thất bại. Sửa thành AB = 4 và gửi lại.
+  Kết quả diễn đạt phụ thuộc plan do Gemini tạo. Quan sát phản hồi
+  thực tế và đối chiếu tính nhất quán của hình.
+
+7:35–9:00 — Kết luận và mở phần hỏi đáp
+  Chỉ rõ vai trò của Gemini, Python và renderer. Nếu muốn, dùng nút
+  “Xóa hội thoại và hình vẽ” để thể hiện kết thúc phiên. Khi trình
+  bày chi phí, nhắc Free Tier, hạn mức và yêu cầu project chưa bật
+  billing. Chốt bằng các số liệu kiểm thử ở mục 10.
+
+Ca mở rộng khi hội đồng yêu cầu thêm
+  F. Tiệm cận: “Vẽ y=(x²+1)/(x−1) và các đường tiệm cận.”
+     Kỳ vọng: hai nhánh quanh x=1, tiệm cận đứng x=1 và xiên y=x+1.
+  G. Điểm khuyết: “Vẽ y=(x²−1)/(x−1), đánh dấu điểm không xác định.”
+     Rút gọn thành y=x+1 cho x khác 1. Vòng tròn rỗng tại (1,2).
+  H. Diện tích: “Tô miền giữa y=x² và y=x từ 0 đến 1. Tính diện tích.”
+     Đối chiếu: y=x nằm trên, tích phân của x−x² bằng 1/6.
+  I. Mặt cầu: “Vẽ mặt cầu x²+y²+z²−2x+4y−6z−2=0.”
+     Đối chiếu: tâm (1,−2,3), bán kính 4 theo hoàn thành bình phương.
+  J. Thống kê: “Vẽ histogram cho [10,20) có 4, [20,30) có 7,
+     [30,50) có 6.” Chiều cao lần lượt 0,4; 0,7; 0,3.
+  K. Hình trụ: “Vẽ hình trụ bán kính 2, hai tâm đáy (1,2,3) và
+     (4,6,3).” Chiều cao bằng khoảng cách hai tâm, tức 5.
+
+======================================================================
+08. TÌNH HUỐNG PHÁT SINH, CHẨN ĐOÁN VÀ XỬ LÝ
+======================================================================
+
+Tình huống                          Xử lý tại chỗ
+----------------------------------------------------------------------
+Bấm gửi khi chưa có đầu vào        Nhập chữ, chọn ảnh hoặc hoàn tất
+                                    bản ghi. API trả 422 cho dữ liệu
+                                    rỗng nếu gọi trực tiếp.
+
+Ảnh sai loại, rỗng hoặc quá 5 MiB  Xuất lại theo JPG/PNG/WebP, cắt phần
+                                    thừa. Đổi đuôi tệp không chuyển
+                                    định dạng bên trong. Gửi lại ảnh.
+
+Ảnh mờ, mất ký hiệu, nhầm dấu âm    Chụp thẳng, đủ sáng, cắt sát đề.
+                                    Gõ lại số liệu quan trọng kèm ảnh.
+                                    Nếu Gemini đọc nhầm, sửa bằng
+                                    chữ và so sánh với ảnh gốc.
+
+Micro bị từ chối hoặc không thấy    Xem quyền microphone cạnh thanh
+                                    địa chỉ và thiết bị đầu vào.
+                                    Dùng localhost/HTTPS. Nếu mất
+                                    thời gian, gõ lời hỏi để tiếp tục.
+
+Trình duyệt không hỗ trợ định dạng  Dùng trình duyệt đã diễn tập hoặc
+                                    chuyển sang nhập chữ trong buổi
+                                    demo. Kiểm tra thiết bị sau đó.
+
+Bản ghi bị cắt, rỗng hoặc quá 2 MiB Nói trong câu ngắn, dừng sớm hơn
+                                    60 giây, nghe thử rồi gửi. Nếu
+                                    thiếu dữ kiện, bổ sung bằng chữ.
+
+Base64 không hợp lệ                 Chọn lại tệp từ giao diện. Nếu tự
+                                    gọi API, gửi đúng data Base64 và
+                                    MIME hỗ trợ. Backend trả 422.
+
+Gemini báo hết hạn mức, HTTP 429    Xem mức sử dụng trong AI Studio,
+                                    đợi quota khả dụng. Trong buổi
+                                    demo, dùng kết quả diễn tập đã
+                                    lưu và kiểm thử ngoại tuyến.
+
+Gemini lỗi hoặc kết nối chậm        Xem trạng thái backend, kết nối,
+                                    model, key và mạng. Có thể gặp
+                                    HTTP 502. Gửi một câu chữ ngắn để
+                                    khoanh vùng bước bị lỗi.
+
+Frontend báo Failed to fetch       Mở localhost:8000/docs. Nếu API
+                                    chạy, kiểm tra origin, cổng 5173,
+                                    cổng 8000 và CORS trong DevTools.
+
+Backend báo thiếu PORT / key        Đặt PROJECT_NAME, PORT,
+                                    GEMINI_API_KEY ở terminal chạy
+                                    backend. Khởi động lại tiến trình.
+
+Sai câu trả lời hoặc hình sai       So đề gốc, tọa độ, constraints,
+                                    tên đối tượng và kết quả lý thuyết.
+                                    Gửi lại một yêu cầu rõ, tách bước
+                                    dựng hình và giải thích.
+
+Tham chiếu “đường này” mơ hồ       Nêu tên điểm hoặc tên đường, chiều
+                                    2D/3D nếu cần. Kiểm tra hội thoại
+                                    còn chứa đối tượng nguồn.
+
+Tọa độ cố định mâu thuẫn            Kiểm tra lại đề. Sửa số liệu hoặc
+                                    chọn một dữ kiện thực sự được
+                                    phép thay đổi, rồi yêu cầu lại.
+
+Hai đường 3D chéo nhau              Nêu điều kiện để chúng thực sự
+                                    cắt nhau, hoặc hỏi về khoảng
+                                    cách giữa hai đường.
+
+Mặt phẳng suy biến                  Cho ba điểm không thẳng hàng hoặc
+                                    vectơ pháp tuyến khác vectơ 0.
+
+Điểm góc nhọn trên đồ thị hoặc      Chọn x khác điểm góc hay điểm ngoài
+gián đoạn ngay tại x cần tiếp tuyến miền xác định. Kiểm tra đạo hàm và
+                                    miền xác định trước khi vẽ.
+
+Tô miền qua điểm gián đoạn          Chọn từng khoảng liên tục phù hợp
+                                    với bài toán và phân tích tích
+                                    phân suy rộng riêng nếu có.
+
+Hình ngoài vùng nhìn, nhãn chồng    Thử “Vừa khung” cho đồ thị/biểu đồ,
+                                    kéo/zoom hoặc xoay camera 3D.
+                                    Kiểm tra tên đối tượng và chế độ.
+
+Canvas còn một phần hình sau lỗi    Xem lời báo lỗi và đối tượng đã
+thực thi                           thêm. Sửa task lỗi rồi yêu cầu
+                                    tiếp, hoặc làm lại ở hội thoại mới.
+
+Khởi động lại làm mất hình          Tạo hội thoại và dựng lại từ câu
+                                    lệnh đã chuẩn bị. State ở RAM.
+
+Chiến lược xử lý khi đang đứng trình bày
+  - 10 giây đầu: đọc thông báo, xác định lỗi thiết bị, kết nối,
+    hạn mức, dữ kiện hay canvas.
+  - 20 giây tiếp theo: dùng câu thay thế đã chuẩn bị. Ví dụ, dùng
+    chữ thay cho audio khi quyền microphone có vấn đề.
+  - Nếu dịch vụ không khả dụng: trình bày ảnh/video diễn tập với
+    nhãn rõ ràng. Mở kiểm thử tự động để chứng minh phần logic cục
+    bộ vẫn có thể kiểm tra.
+
+======================================================================
+09. CHI PHÍ, DỮ LIỆU VÀ GIỚI HẠN TRIỂN KHAI
+======================================================================
+
+Chi phí và điều kiện
+  - Thu âm bằng API sẵn có của trình duyệt. Dùng lại Google Gemini
+    Developer API để hiểu ảnh và audio.
+  - Mỗi request có tệp thêm một lượt gọi trích xuất. Ảnh và audio
+    cùng request dùng chung lượt trích xuất. Phần lập plan, lời
+    giải và một số nhánh xử lý hình học còn có các lượt gọi riêng.
+  - Để chi phí API bằng 0, dùng key từ project Gemini Free Tier
+    chưa liên kết billing và model được hỗ trợ trên Free Tier.
+    Kiểm tra trạng thái project trước buổi demo. Free Tier có giới
+    hạn và dùng chung quota theo cấu hình của dịch vụ. Khi hết quota,
+    chờ dịch vụ cho phép sử dụng lại.
+  - Nếu thay GEMINI_MODEL, chọn model nhận ảnh và âm thanh. Nếu thay
+    GEMINI_ANSWER_MODEL, kiểm tra model trả lời cũng có Free Tier.
+  - Link kiểm tra project: https://aistudio.google.com/projects
+  - Bảng giá: https://aistudio.google.com/docs/pricing#gemini-3.5-flash-lite
+  - Tài liệu billing: https://aistudio.google.com/docs/billing
+
+Dữ liệu và phạm vi bản demo
+  - Ảnh và audio được đưa tới Gemini khi người dùng gửi. Giao diện
+    hiển thị thông tin này trước khi gửi. Demo nên dùng dữ liệu
+    tự soạn, tránh hình và ghi âm chứa thông tin cá nhân.
+  - Backend dùng dữ liệu tệp trong lượt xử lý và dùng nội dung đã
+    trích trong luồng chat. Ảnh/bản ghi xem lại ở frontend thuộc
+    trạng thái bộ nhớ của phiên.
+  - Key nằm ở backend. Khi trình bày chỉ chiếu sơ đồ, tên biến môi
+    trường, giao diện và kết quả kiểm thử.
+  - Chất lượng đọc ảnh, chép lời và lập plan thay đổi theo đầu vào
+    và model. Đặc biệt kiểm tra ảnh viết tay, dấu âm, số mũ, phân
+    số nhiều tầng, tiếng ồn và ký hiệu điểm khi chạy thật.
+  - Phạm vi kiểm định tập trung vào dữ kiện và quan hệ đã được đưa
+    vào plan, cùng các phép dựng được hỗ trợ. Kiểm định hình học
+    và độ chính xác của toàn bộ lời giải là hai tiêu chí riêng.
+  - State RAM và định tuyến localhost phù hợp với demo. Nếu được
+    hỏi về triển khai nhiều người dùng, những hạng mục cần thiết
+    gồm xác thực, lưu trữ theo tài khoản, giới hạn upload/lượt gọi,
+    đồng bộ khi chạy nhiều tiến trình, HTTPS và theo dõi lỗi/quota.
+
+======================================================================
+10. KẾT QUẢ KIỂM THỬ VÀ TIÊU CHÍ NGHIỆM THU
+======================================================================
+
+Đã kiểm tra trong workspace
+  - Backend: chạy 52 ca, trong đó 51 đạt và 1 bỏ qua. Lượt kiểm
+    thử dùng key giả và tắt bộ đánh giá Gemini trực tiếp.
+  - test_chat_media.py: kiểm tra ảnh riêng, audio riêng, cả hai
+    kèm chữ, đầu vào lỗi và nhánh phản hồi hết quota. Gemini được
+    mô phỏng để kiểm tra API và việc chuyển câu hỏi vào pipeline.
+  - test_thpt_visualizations.py: kiểm tra nhánh phân thức, điểm
+    khuyết, miền hàm cơ bản, tiếp tuyến/cực trị, miền diện tích,
+    Oxyz, kích thước khối, histogram và lưu kết quả qua API.
+  - Frontend: 2 ca nối điểm đạt, một cho 2D và một cho 3D. TypeScript
+    đã qua kiểm tra và build Vite thành công. Vite có cảnh báo kích
+    thước bundle, có thể tối ưu khi chuẩn bị triển khai rộng.
+  - Còn cần diễn tập trực tiếp với micro của máy chiếu và Gemini
+    Free Tier để xác nhận quyền thiết bị, độ chính xác trích xuất,
+    độ trễ và hạn mức ở môi trường trình bày.
+
+Lệnh chạy lại trên PowerShell
+  Backend, chạy từ thư mục backend:
+    $env:PROJECT_NAME = 'Gia su Toan AI'
+    $env:PORT = '8000'
+    $env:GEMINI_API_KEY = 'mock-test-key'
+    $env:RUN_GEOMETRY_LLM_EVAL = '0'
+    ..\.venv\Scripts\python.exe -m unittest discover -s test
+
+  Frontend, chạy từ thư mục fontend:
+    node --test tests/point-connection.test.mjs
+    npm.cmd run build
+    Nếu môi trường hạn chế tiến trình con và Node hỗ trợ tùy chọn này:
+    node --test --test-isolation=none tests/point-connection.test.mjs
+
+Tiêu chí để tự chấm khi diễn tập
+  [ ] Text: trả lời đúng bài đạo hàm, công thức đọc được.
+  [ ] Ảnh: gửi được một ảnh thật và đối chiếu số/dấu với đề.
+  [ ] Audio: cấp quyền, ghi, dừng, nghe lại và xử lý đúng lời hỏi.
+  [ ] Kết hợp: dùng được cả phần đề trong ảnh và yêu cầu trong audio.
+  [ ] 2D: dựng M đúng tọa độ, tạo H đúng quan hệ.
+  [ ] 3D: xoay được cảnh, giải thích được vị trí H và độ dài DH.
+  [ ] Lỗi: có phản hồi hữu ích cho ca thiếu dữ kiện hoặc mâu thuẫn.
+  [ ] Ngữ cảnh: lượt sau tham chiếu đúng hình; thao tác xóa có hiệu lực.
+
+======================================================================
+11. CÂU HỎI HỘI ĐỒNG VÀ GỢI Ý TRẢ LỜI
+======================================================================
+
+Hỏi: Dự án có gì ngoài việc gửi câu hỏi sang Gemini?
+Đáp: Gemini tạo kế hoạch có cấu trúc. Backend kiểm tra plan, chuẩn hóa
+tham chiếu, tính điểm dựng, giải constraint, kiểm định rồi cập nhật
+canvas. Ví dụ, tọa độ trung điểm được tính từ A, B và được cập nhật
+khi nguồn thay đổi. Có thể mở mã StateManager và bộ dựng để minh họa.
+
+Hỏi: Vì sao xử lý ảnh và audio thành chữ trước?
+Đáp: Cả ba loại đầu vào dùng chung bộ lập kế hoạch và kiểm định. Chữ
+trích được đi vào lịch sử để lượt sau tiếp tục theo ngữ cảnh. Thiết
+kế này thêm một lượt gọi và có thể mất chi tiết nếu ảnh mờ hoặc lời
+ghi âm không rõ. Khi đó người dùng bổ sung dữ kiện.
+
+Hỏi: Khi AI tạo hình không đúng ràng buộc thì sao?
+Đáp: Các task hình học đi qua dựng điểm, giải tọa độ và kiểm định.
+Lỗi kiểm định chặn bước vẽ của lượt đó. Với lỗi lúc đang thực thi,
+task đã commit có thể tồn tại và task phụ thuộc bị bỏ qua. Kiểm tra
+điểm cố định và báo lỗi cụ thể trước khi thử lại.
+
+Hỏi: Số đo trên hình có phải số đo nhìn thấy bằng mắt?
+Đáp: Với sketch, nhãn thể hiện dữ kiện bài toán, hình phục vụ minh
+họa. Khi bài yêu cầu chính xác, nêu tọa độ hoặc đúng tỉ lệ và đối
+chiếu bằng phép tính. Zoom và góc nhìn 3D có thể thay đổi cảm nhận.
+
+Hỏi: Vì sao dùng cả SymPy và SciPy?
+Đáp: SymPy xử lý biểu thức, miền và đạo hàm theo ký hiệu. SciPy giải
+theo phương pháp số với một số ràng buộc tọa độ. Sau khi hội tụ, hệ
+thống kiểm tra nghiệm theo ràng buộc và sai số.
+
+Hỏi: Phát sinh tiền không? Hết quota thì xử lý thế nào?
+Đáp: Với project chưa liên kết billing, dùng model và hạn mức Free
+Tier thì chi phí API bằng 0. Lượt có tệp chia sẻ quota với phần chat
+và có thêm bước trích. Hết quota thì đợi làm mới hoặc dùng dữ liệu
+diễn tập để báo cáo.
+
+Hỏi: Có chạy offline không?
+Đáp: Backend tính toán hình học và frontend dựng canvas bằng mã cục
+bộ, có thể kiểm thử các phần đó ngoại tuyến. Luồng hiểu câu hỏi và
+viết lời giải thực tế cần kết nối Gemini.
+
+Hỏi: Có lưu lịch sử lâu dài và dùng nhiều máy được không?
+Đáp: Bản demo lưu ngữ cảnh theo ID trong bộ nhớ tiến trình. Khi khởi
+động lại sẽ mất phiên. Có thể mở rộng bằng xác thực, kho trạng thái
+chung hoặc cơ sở dữ liệu nếu cần lưu lâu dài.
+
+Hỏi: Dùng ảnh có vẽ lại đúng toàn bộ hình trong ảnh không?
+Đáp: Hệ thống trích dữ kiện, nhãn và quan hệ nhận diện được rồi tạo
+một hình mới theo đề. Với bố cục có yêu cầu độ chính xác cao, cần
+đối chiếu dữ kiện hoặc bổ sung tọa độ.
+
+Hỏi: Kiểm thử mô phỏng chứng minh điều gì?
+Đáp: Nó xác nhận API nhận đúng các loại đầu vào, chuyển media, xử lý
+lỗi và đưa dữ kiện vào luồng chat. Các bài kiểm thử toán xác nhận
+kết quả của hàm tính/vẽ theo đầu vào cụ thể. Demo trực tiếp bổ sung
+bằng chứng về chất lượng nhận dạng, lập kế hoạch và quyền micro.
+
+======================================================================
+12. LỜI MỞ ĐẦU, LỜI KẾT VÀ CHECKLIST
+======================================================================
+
+Lời mở đầu gợi ý
+  “Kính chào hội đồng. Em trình bày Gia sư Toán AI, một ứng dụng web
+  giúp học sinh gửi câu hỏi bằng chữ, ảnh đề bài hoặc giọng nói.
+  Em sẽ demo giải toán bằng chữ, dùng ảnh kết hợp ghi âm để yêu cầu
+  vẽ tiếp tuyến, rồi dựng hình 2D và 3D theo dữ kiện có thể kiểm
+  chứng. Trong từng phần, em sẽ chỉ rõ dữ liệu đi từ câu hỏi đến
+  lời giải và hình vẽ như thế nào.”
+
+Lời kết gợi ý
+  “Bản demo cho thấy cùng một câu hỏi có thể đi vào hệ thống từ ba
+  loại đầu vào. Gemini hiểu đề và lập kế hoạch, backend xử lý các
+  phép dựng và ràng buộc, còn canvas cho phép quan sát và tiếp tục
+  thao tác. Với bản hiện tại, em đánh giá riêng độ chính xác của
+  lời giải, hình và dữ liệu trích xuất. Em xin mời hội đồng đặt
+  câu hỏi hoặc đưa thêm một tình huống để kiểm tra.”
+
+Checklist 5 phút trước giờ diễn
+  [ ] Backend chạy cổng 8000 và Swagger mở được.
+  [ ] Frontend chạy tại localhost:5173.
+  [ ] Đã thử một câu Gemini thật, project còn quota Free Tier.
+  [ ] Micro đã cấp quyền, nghe lại được một bản ghi ngắn.
+  [ ] Ảnh đề rõ, đúng định dạng, nằm ở thư mục dễ chọn.
+  [ ] Đã chuẩn bị câu mẫu 2D, 3D và ít nhất một câu lỗi.
+  [ ] Đã lưu kết quả diễn tập, mở sẵn tài liệu và màn hình dự phòng.
+  [ ] Cỡ chữ dễ nhìn trên máy chiếu, không lộ key trên màn hình.
+  [ ] Có thể giải thích 3 đại lượng: tiếp tuyến y=2x−1, trung điểm
+      M=(2,0) và hình chiếu 3D H=(1,1,0).
+
+Tài liệu nội bộ dùng để đối chiếu
+  README.md
+  CHUC_NANG_THEM_THPT.txt
+  backend/test/test_chat_media.py
+  backend/test/test_thpt_visualizations.py
+  backend/test/test_sketch_measurements.py
+  fontend/tests/point-connection.test.mjs

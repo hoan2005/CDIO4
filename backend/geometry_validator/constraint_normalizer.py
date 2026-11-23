@@ -93,6 +93,18 @@ class ConstraintNormalizer:
                         pp=raw.get("points")
                         if not isinstance(pp,(list,tuple)) or len(pp)!=4: raise ConstraintNormalizationError("perpendicular_lines cần 4 điểm")
                         add("perpendicular_lines",[self._name(x) for x in pp],raw)
+                elif typ == "parallelogram":
+                    names = raw.get("points")
+                    if not isinstance(names, (list, tuple)) or len(names) != 4:
+                        raise ConstraintNormalizationError("Hình bình hành cần 4 đỉnh theo thứ tự.")
+                    add(typ, [self._name(n) for n in names], raw)
+                elif typ == "angle_line_plane":
+                    line = self._pair(raw.get("line"), "line")
+                    plane = raw.get("plane")
+                    angle = self._number(raw.get("angle_degrees"), "angle_degrees")
+                    if dim != 3 or not isinstance(plane, (list, tuple)) or len(plane) != 3 or not 0 <= angle <= 90:
+                        raise ConstraintNormalizationError("Góc đường–mặt cần 3 điểm mặt phẳng và số đo từ 0 đến 90 độ.")
+                    add(typ, [*line, *(self._name(n) for n in plane)], raw, angle)
                 elif typ=="right_triangle":
                     pp=raw.get("points")
                     if not isinstance(pp,(list,tuple)) or len(pp)!=3: raise ConstraintNormalizationError("right_triangle cần 3 điểm")

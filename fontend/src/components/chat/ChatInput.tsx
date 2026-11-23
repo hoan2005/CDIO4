@@ -1,40 +1,122 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store/useAppStore'
+import AttachmentPreview from './AttachmentPreview'
 
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+const RECORDING_TYPES = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4']
+const MIB = 1024 * 1024
 
 export default function ChatInput() {
 
   const [text, setText] = useState('')
+  const [image, setImage] = useState<File>()
+  const [audio, setAudio] = useState<Blob>()
+  const [mediaError, setMediaError] = useState('')
+  const [recordingState, setRecordingState] = useState<'idle' | 'starting' | 'recording' | 'stopping'>('idle')
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const cancelRecording = useRef<(() => void) | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  useEffect(() => () => cancelRecording.current?.(), [])
 
   const sendMessage =
     useAppStore(state => state.sendMessage)
 
-  const clearCanvas =
-    useAppStore(state => state.clearCanvas)
+  const deleteConversation =
+    useAppStore(state => state.deleteConversation)
 
   const isLoading =
     useAppStore(state => state.isLoading)
 
+  const canSend = !isLoading && recordingState === 'idle' && Boolean(text.trim() || image || audio)
+
+  const stopRecording = () => {
+    const recorder = recorderRef.current
+    if (recorder?.state === 'recording') {
+      setRecordingState('stopping')
+      recorder.stop()
+    }
+  }
+
+  const startRecording = async () => {
+    setMediaError('')
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setMediaError('Ghi âm cần trình duyệt hỗ trợ microphone trên HTTPS hoặc localhost.')
+      return
+    }
+    const mimeType = RECORDING_TYPES.find(type => MediaRecorder.isTypeSupported(type))
+    if (!mimeType) {
+      setMediaError('Trình duyệt chưa hỗ trợ định dạng ghi âm tương thích.')
+      return
+    }
+
+    setRecordingState('starting')
+    let stream: MediaStream | undefined
+    let timeout: number | undefined
+    let cancelled = false
+    const release = () => {
+      window.clearTimeout(timeout)
+      stream?.getTracks().forEach(track => track.stop())
+      recorderRef.current = null
+      cancelRecording.current = null
+    }
+    cancelRecording.current = () => {
+      cancelled = true
+      if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+      release()
+    }
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (cancelled) {
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
+      const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 })
+      const chunks: Blob[] = []
+      recorderRef.current = recorder
+      recorder.ondataavailable = event => {
+        if (event.data.size) chunks.push(event.data)
+      }
+      recorder.onerror = () => {
+        if (cancelled) return
+        cancelled = true
+        release()
+        setRecordingState('idle')
+        setMediaError('Ghi âm bị gián đoạn. Hãy thử lại.')
+      }
+      recorder.onstop = () => {
+        if (cancelled) return
+        release()
+        setRecordingState('idle')
+        const recording = new Blob(chunks, { type: recorder.mimeType || mimeType })
+        if (!recording.size || recording.size > 2 * MIB) {
+          setMediaError('Bản ghi rỗng hoặc vượt quá 2 MiB. Hãy ghi âm lại.')
+          return
+        }
+        setAudio(recording)
+      }
+      recorder.start()
+      setRecordingState('recording')
+      timeout = window.setTimeout(stopRecording, 60_000)
+    } catch {
+      if (cancelled) return
+      release()
+      setRecordingState('idle')
+      setMediaError('Không mở được microphone. Hãy kiểm tra quyền truy cập và thiết bị.')
+    }
+  }
 
   const handleSubmit = async () => {
 
-    const message = text.trim()
-
-    // Không gửi message rỗng
-    if (!message) {
-      return
-    }
-
-    // Đang xử lý thì không cho hỏi tiếp
-    if (isLoading) {
-      return
-    }
+    if (!canSend) return
 
 
     // Xóa input ngay khi gửi
     setText('')
+    setImage(undefined)
+    setAudio(undefined)
+    setMediaError('')
     if (textareaRef.current) {
       textareaRef.current.style.height = '88px'
       textareaRef.current.style.overflowY = 'hidden'
@@ -43,7 +125,7 @@ export default function ChatInput() {
 
     try {
 
-      await sendMessage(message)
+      await sendMessage(text.trim(), image || audio ? { image, audio } : undefined)
 
     } catch (error) {
 
@@ -59,6 +141,7 @@ export default function ChatInput() {
   const handleKeyDown = (
     event: React.KeyboardEvent<HTMLTextAreaElement>
   ) => {
+    if (event.nativeEvent.isComposing) return
 
     // Enter để gửi
     if (
@@ -92,9 +175,9 @@ export default function ChatInput() {
       >
         <button
           type="button"
-          onClick={() => void clearCanvas()}
+          onClick={() => void deleteConversation()}
           disabled={isLoading}
-          aria-label="Xóa tất cả đối tượng trên hình"
+          aria-label="Xóa hội thoại và tất cả đối tượng trên hình"
           style={{
             padding: '7px 11px',
             border: '1px solid #FECACA',
@@ -106,7 +189,7 @@ export default function ChatInput() {
             cursor: isLoading ? 'not-allowed' : 'pointer',
           }}
         >
-          🗑️ Xóa tất cả đối tượng
+          🗑️ Xóa hội thoại và hình vẽ
         </button>
       </div>
 
@@ -123,6 +206,57 @@ export default function ChatInput() {
         💡 Bạn có thể hỏi về bài học, công thức hoặc cách giải
       </div>
 
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+        <label style={{ fontSize: 12 }}>
+          Chọn ảnh đề bài
+          <input
+            type="file"
+            accept={IMAGE_TYPES.join(',')}
+            disabled={isLoading}
+            style={{ display: 'block', maxWidth: 200 }}
+            onChange={event => {
+              const file = event.currentTarget.files?.[0]
+              event.currentTarget.value = ''
+              if (!file) return
+              if (!IMAGE_TYPES.includes(file.type) || !file.size || file.size > 5 * MIB) {
+                setMediaError('Chọn ảnh JPG, PNG hoặc WebP có dung lượng tối đa 5 MiB.')
+                return
+              }
+              setMediaError('')
+              setImage(file)
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={isLoading || recordingState === 'starting' || recordingState === 'stopping'}
+          onClick={recordingState === 'recording' ? stopRecording : () => void startRecording()}
+          style={{ padding: '5px 9px', border: '1px solid #CBD5E1', borderRadius: 8, fontSize: 12 }}
+        >
+          {recordingState === 'recording' ? 'Dừng ghi âm' :
+            recordingState === 'starting' ? 'Đang mở microphone…' :
+            recordingState === 'stopping' ? 'Đang lưu bản ghi…' : 'Ghi âm (tối đa 60 giây)'}
+        </button>
+      </div>
+      {recordingState === 'recording' && <div role="status">Đang ghi âm…</div>}
+      {mediaError && <div role="alert" style={{ color: '#B91C1C', fontSize: 12 }}>{mediaError}</div>}
+      {image && (
+        <div style={{ marginBottom: 8 }}>
+          <AttachmentPreview blob={image} kind="image" />
+          <button type="button" onClick={() => setImage(undefined)}>Bỏ ảnh</button>
+        </div>
+      )}
+      {audio && (
+        <div style={{ marginBottom: 8 }}>
+          <AttachmentPreview blob={audio} kind="audio" />
+          <button type="button" onClick={() => setAudio(undefined)}>Bỏ bản ghi</button>
+        </div>
+      )}
+      {(image || audio) && (
+        <div style={{ marginBottom: 8, color: '#64748B', fontSize: 12 }}>
+          Tệp đính kèm sẽ được gửi tới Google Gemini khi bạn bấm Gửi.
+        </div>
+      )}
 
       {/* Ô nhập + nút gửi */}
 
@@ -177,10 +311,7 @@ export default function ChatInput() {
 
         <button
           onClick={handleSubmit}
-          disabled={
-            isLoading ||
-            text.trim() === ''
-          }
+          disabled={!canSend}
           aria-label="Gửi câu hỏi"
           style={{
             minWidth: '82px',
@@ -189,14 +320,14 @@ export default function ChatInput() {
             borderRadius: '12px',
             border: 'none',
             background:
-              isLoading || text.trim() === ''
+              !canSend
                 ? '#CBD5E1'
                 : '#4F46E5',
             color: '#FFFFFF',
             fontSize: '14px',
             fontWeight: 600,
             cursor:
-              isLoading || text.trim() === ''
+              !canSend
                 ? 'not-allowed'
                 : 'pointer',
             transition: 'background 0.2s ease',

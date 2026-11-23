@@ -1,5 +1,4 @@
 import math
-from math import dist
 
 
 from math_engine.draw.Common import (
@@ -95,16 +94,11 @@ def draw_cube(input_data: dict, state: dict = None) -> dict:
 
     vertices = _vertex_coords(names, get_dict(input_data, "coordinates"))
 
-    if "A" in vertices and "B" in vertices:
-        side_label = f"{dist(vertices['A'], vertices['B']):g}"
-    else:
-        side_label = "chưa xác định"
-
     return {
         "id": make_id("cube"),
         "kind": "cube",
         "dimension": "3d",
-        "label": f"Hình lập phương cạnh {side_label}",
+        "label": input_data.get("label") or "Hình lập phương",
         "vertices": vertices,
         **common_fields(input_data),
     }
@@ -226,14 +220,20 @@ def draw_sphere(input_data: dict, state: dict = None) -> dict:
     """
     Mặt cầu.
 
-    Input: center [x, y, z], radius, role, style, coordinate_control, constraints.
+    Input: center [x,y,z] và radius, hoặc coefficients [d,e,f,g]
+    cho x²+y²+z²+dx+ey+fz+g=0.
     """
     input_data = require_dict(input_data)
 
     raw_center = input_data.get("center")
     coordinates = get_dict(input_data, "coordinates")
     center_name = raw_center.strip() if isinstance(raw_center, str) else None
-    if isinstance(raw_center, str):
+    if "coefficients" in input_data:
+        d, e, f, g = validate_point(input_data["coefficients"], "hệ số mặt cầu", dims=(4,))
+        center = [-d / 2, -e / 2, -f / 2]
+        radius_squared = sum(value * value for value in center) - g
+        radius = math.sqrt(positive_number(radius_squared, "Bình phương bán kính"))
+    elif isinstance(raw_center, str):
         center = coordinates.get(raw_center)
     elif raw_center is None:
         center_name = "O" if "O" in coordinates else None
@@ -241,7 +241,8 @@ def draw_sphere(input_data: dict, state: dict = None) -> dict:
     else:
         center = raw_center
     center = validate_point(center, "tâm", dims=(3,))
-    radius = positive_number(input_data.get("radius"), "Bán kính mặt cầu", default=3)
+    if "coefficients" not in input_data:
+        radius = positive_number(input_data.get("radius"), "Bán kính mặt cầu", default=3)
 
     return {
         "id": make_id("sphere"),
@@ -251,7 +252,9 @@ def draw_sphere(input_data: dict, state: dict = None) -> dict:
         "center": center,
         **({"center_name": center_name} if center_name else {}),
         "radius": radius,
-        "coordinates": {center_name or "O": center},
+        "coordinates": {center_name: center} if center_name else (
+            {} if "coefficients" in input_data else {"O": center}
+        ),
         **common_fields(input_data, style_default_color="#2563eb"),
     }
 
@@ -266,11 +269,19 @@ def draw_cone(input_data: dict, state: dict = None) -> dict:
     input_data = require_dict(input_data)
 
     coordinates = get_dict(input_data, "coordinates")
-    apex = validate_point(coordinates.get("apex", [0, 0, 5]), "apex", dims=(3,))
     center = validate_point(coordinates.get("center", [0, 0, 0]), "center", dims=(3,))
 
     radius = positive_number(input_data.get("radius"), "Bán kính", default=3)
-    height = positive_number(input_data.get("height"), "Chiều cao", default=5)
+    if "apex" in coordinates:
+        apex = validate_point(coordinates["apex"], "apex", dims=(3,))
+        height = positive_number(math.dist(apex, center), "Chiều cao")
+        if "height" in input_data:
+            given_height = positive_number(input_data["height"], "Chiều cao")
+            if not math.isclose(given_height, height, rel_tol=1e-6):
+                raise ValueError("Chiều cao phải bằng khoảng cách từ tâm đáy đến đỉnh nón.")
+    else:
+        height = positive_number(input_data.get("height"), "Chiều cao", default=5)
+        apex = validate_point([center[0], center[1], center[2] + height], "apex", dims=(3,))
 
     return {
         "id": make_id("cone"),
@@ -281,4 +292,27 @@ def draw_cone(input_data: dict, state: dict = None) -> dict:
         "radius": radius,
         "height": height,
         **common_fields(input_data, style_default_color="#2563eb"),
+    }
+
+
+def draw_cylinder(input_data: dict, state: dict = None) -> dict:
+    """Hình trụ tròn xoay qua hai tâm đáy, mặc định trục song song Oz."""
+    input_data = require_dict(input_data)
+    base = validate_point(input_data.get("base_center", [0, 0, 0]), "tâm đáy dưới", dims=(3,))
+    radius = positive_number(input_data.get("radius"), "Bán kính hình trụ")
+    if "top_center" in input_data:
+        top = validate_point(input_data["top_center"], "tâm đáy trên", dims=(3,))
+        height = positive_number(math.dist(base, top), "Chiều cao")
+        if "height" in input_data and not math.isclose(
+            height, positive_number(input_data["height"], "Chiều cao"), rel_tol=1e-6
+        ):
+            raise ValueError("Chiều cao phải bằng khoảng cách giữa hai tâm đáy.")
+    else:
+        height = positive_number(input_data.get("height"), "Chiều cao", default=5)
+        top = validate_point([base[0], base[1], base[2] + height], "tâm đáy trên", dims=(3,))
+    return {
+        "id": make_id("cylinder"), "kind": "cylinder", "dimension": "3d",
+        "label": input_data.get("name") or "Hình trụ",
+        "base_center": base, "top_center": top, "radius": radius, "height": height,
+        **common_fields(input_data, style_default_color="#0f766e"),
     }

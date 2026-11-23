@@ -14,6 +14,9 @@ ALLOWED_OPERATIONS = {
     "draw_point",
     "draw_line",
     "draw_function",
+    "draw_area_between",
+    "draw_cylinder",
+    "draw_histogram",
     "draw_cube",
     "draw_prism",
     "draw_pyramid",
@@ -35,7 +38,7 @@ ALLOWED_OPERATIONS = {
 
 ALLOWED_DIMENSIONS = {"2d", "3d", None}
 ALLOWED_PROBLEM_TYPES = {
-    "geometry", "algebra", "calculus", "probability", "other", "ambiguous"
+    "geometry", "algebra", "calculus", "probability", "statistics", "other", "ambiguous"
 }
 CANVAS_OPERATIONS = ALLOWED_OPERATIONS - {"answer", "clarify"}
 ANSWER_REQUEST_PATTERN = re.compile(
@@ -323,11 +326,19 @@ class Orchestrator:
             raise ValueError("user_message không được để trống.")
 
         state = state or {}
+        sample_fields = {"function": {"points", "segments"}, "area_between": {"bands"}}
+        canvas_objects = {
+            object_id: {
+                key: value for key, value in obj.items()
+                if key not in sample_fields.get(obj.get("kind"), ())
+            } if isinstance(obj, dict) else obj
+            for object_id, obj in (state.get("canvas_objects") or {}).items()
+        }
         prompt = build_orchestrator_user_prompt(
             user_message=user_message.strip(),
             summary=state.get("summary", ""),
             recent_turns=state.get("recent_turns", []),
-            canvas_objects=state.get("canvas_objects", {}),
+            canvas_objects=canvas_objects,
             geometry_model=state.get("geometry_model", {}),
         )
 

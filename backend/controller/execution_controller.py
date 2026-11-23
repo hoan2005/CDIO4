@@ -3,8 +3,23 @@ from copy import deepcopy
 from typing import Any, Callable
 
 from math_engine.draw import draw_3D,draw_2D_3D,draw_2D
+from math_engine.draw.function_graph import draw_area_between
+from math_engine.draw.Common import merge_measurement_labels
 from geometry_validator.construction_solver import ConstructionSolver
 from geometry_validator.geometry_model import object_points, recompute_dependents
+
+
+def validate_label_anchors(obj):
+    points = object_points(obj)
+    for label in obj.get("measurement_labels", []):
+        if label["points"]:
+            missing = set(label["points"]) - points.keys()
+            if missing:
+                raise ValueError("Hình không có điểm neo nhãn: " + ", ".join(sorted(missing)))
+        elif obj.get("kind") not in {"radius": {"circle", "sphere"},
+                                     "diameter": {"circle", "sphere"},
+                                     "height": {"cone"}}.get(label["kind"], set()):
+            raise ValueError("Cần chỉ định điểm neo cho nhãn trên hình này.")
 
 
 class ExecutionController:
@@ -39,6 +54,9 @@ class ExecutionController:
             "draw_plane": draw_2D_3D.draw_plane,
             "draw_hyperbola": draw_2D.draw_hyperbola,
             "draw_function": draw_2D.draw_function,
+            "draw_area_between": draw_area_between,
+            "draw_cylinder": draw_3D.draw_cylinder,
+            "draw_histogram": draw_2D.draw_histogram,
             "draw_line_plane": draw_2D_3D.draw_plane,
         }
         # Bugfix: math_handlers phải là tham số riêng, không được lấy drawing_handlers.
@@ -59,6 +77,9 @@ class ExecutionController:
             "draw_plane": draw_2D_3D.draw_plane,
             "draw_hyperbola": draw_2D.draw_hyperbola,
             "draw_function": draw_2D.draw_function,
+            "draw_area_between": draw_area_between,
+            "draw_cylinder": draw_3D.draw_cylinder,
+            "draw_histogram": draw_2D.draw_histogram,
             "draw_line_plane": draw_2D_3D.draw_plane,
         }
 
@@ -242,7 +263,12 @@ class ExecutionController:
                             updated_points[index] = list(merged_coordinates[point_name])
                     updated["points"] = updated_points
 
+            if "measurement_labels" in patch:
+                patch["measurement_labels"] = merge_measurement_labels(
+                    current.get("measurement_labels", []), patch["measurement_labels"])
             updated.update(patch)
+            if "measurement_labels" in patch:
+                validate_label_anchors(updated)
 
             # coordinate_control là map theo tên điểm; merge để không mất metadata cũ.
             if isinstance(incoming_controls, dict):
@@ -347,6 +373,9 @@ class ExecutionController:
             raise ValueError(
                 f"Handler {operation} phải trả về dictionary."
             )
+
+        if "measurement_labels" in result:
+            validate_label_anchors(result)
 
         return {
             "operation": operation,

@@ -46,7 +46,7 @@ class ScipyConstraintAdapter:
             return out
         supported = {"parallel_lines", "perpendicular_lines", "distance", "point_on_line", "midpoint",
                      "collinear", "coincident", "horizontal", "vertical", "equal_length", "angle",
-                     "perpendicular_line_plane", "angle_between_planes"}
+                     "perpendicular_line_plane", "angle_between_planes", "angle_line_plane", "parallelogram"}
         unsupported = sorted({c.get("type", "unknown") for c in constraints if c.get("type") not in supported})
         if unsupported:
             return {"success": False, "status": "unsupported_constraints", "solver": self.name,
@@ -74,6 +74,13 @@ class ScipyConstraintAdapter:
                     pts = [p[n] for n in q]
                     if t == "distance":
                         r.append(float(np.linalg.norm(pts[0]-pts[1])) - float(c["value"]))
+                    elif t == "parallelogram":
+                        r.extend((pts[2]-pts[1]) - (pts[3]-pts[0]))
+                    elif t == "angle_line_plane":
+                        direction = pts[1] - pts[0]
+                        normal = np.cross(pts[3]-pts[2], pts[4]-pts[2])
+                        den = np.linalg.norm(direction) * np.linalg.norm(normal)
+                        r.append(abs(float(direction @ normal)) / den - sin(radians(c["value"])) if den > 0 else 1e3)
                     elif t == "coincident":
                         r.extend(pts[0]-pts[1])
                     elif t == "midpoint":

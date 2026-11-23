@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { measurementLabels } from '@/utils/measurementLabels'
+import { geometryGuides, guideKey } from '@/utils/geometryGuides'
 
 import {
   Stage,
@@ -13,7 +15,6 @@ import type {
   AngleObject,
   CanvasObjectWithMeta,
   EqualSegmentsObject,
-  FunctionObject,
 } from '@/types'
 import {
   getCanvasPointTargets,
@@ -25,6 +26,20 @@ import {
 // ============================================================
 
 const HEX_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+const MIN_SCALE = 1e-9
+const MAX_SCALE = 200
+const formatNumber = new Intl.NumberFormat('vi-VN', { maximumSignificantDigits: 6, useGrouping: false })
+
+function gridTicks(start: number, end: number, scale: number): number[] {
+  const target = 38 / scale
+  const power = 10 ** Math.floor(Math.log10(target))
+  const multiple = [1, 2, 5, 10].find(value => value * power >= target) ?? 10
+  const step = multiple * power
+  const first = Math.ceil(start / step)
+  if (!Number.isSafeInteger(first)) return []
+  const count = Math.min(200, Math.floor(end / step) - first + 1)
+  return Array.from({ length: count }, (_, index) => (first + index) * step).filter(value => value !== 0)
+}
 
 function resolveColor(
   color: string | undefined,
@@ -60,6 +75,7 @@ function clipInfiniteLine(
   const [x, y] = first
   const dx = second[0] - x
   const dy = second[1] - y
+  if (![x, y, dx, dy].every(Number.isFinite)) return null
   const intersections: Array<[number, number]> = []
   const addIfInside = (candidateX: number, candidateY: number) => {
     if (
@@ -189,6 +205,7 @@ export default function Canvas2D({
   const menuPosition = localSelection
 
   const [scale, setScale] = useState(40)
+  const [verticalRatio, setVerticalRatio] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
@@ -207,11 +224,75 @@ export default function Canvas2D({
     [objects],
   )
 
+  const plotView = useMemo(() => {
+    const latest = [...objects2D].reverse().find(({ object }) =>
+      object.kind === 'function' || object.kind === 'area_between' || object.kind === 'histogram')
+    if (!latest) return null
+    const histogram = latest.object.kind === 'histogram'
+    const stretch = histogram && objects2D.every(({ object }) => object.kind === 'histogram')
+    const xs: number[] = []
+    const ys: number[] = []
+    for (const { object } of objects2D) {
+      if (histogram && object.kind === 'histogram') {
+        for (const bar of object.bars) {
+          xs.push(bar.lower, bar.upper)
+          ys.push(0, bar.height)
+        }
+      } else if (!histogram && object.kind === 'area_between') {
+        for (const band of object.bands) {
+          for (const [x, y, otherY] of band) {
+            xs.push(x)
+            ys.push(y, otherY)
+          }
+        }
+      } else if (!histogram && object.kind === 'function') {
+        const points = object.segments?.flat() ?? object.points ?? []
+        const orderedY = points.map(([, y]) => y).sort((a, b) => a - b)
+        const low = Math.floor(orderedY.length * .12)
+        if (orderedY.length) ys.push(orderedY[low], orderedY[orderedY.length - 1 - low])
+        for (const [x] of points) xs.push(x)
+        for (const marker of object.markers ?? []) ys.push(marker.position[1])
+      }
+    }
+    const xBounds = xs.reduce(([low, high], x) => [Math.min(low, x), Math.max(high, x)], [Infinity, -Infinity])
+    const yBounds = ys.reduce(([low, high], y) => [Math.min(low, y), Math.max(high, y)], [Infinity, -Infinity])
+    if (![...xBounds, ...yBounds].every(Number.isFinite)) return null
+    return { id: latest.id, xBounds, yBounds, stretch }
+  }, [objects2D])
+
+  const fitPlot = React.useCallback(() => {
+    if (!plotView) {
+      setScale(40)
+      setVerticalRatio(1)
+      setPan({ x: 0, y: 0 })
+      return
+    }
+    const { xBounds: [left, right], yBounds: [bottom, top], stretch } = plotView
+    const fitX = canvasWidth * .8 / Math.max(1e-6, right - left)
+    const fitY = canvasHeight * .74 / Math.max(stretch ? 1e-6 : 2, top - bottom)
+    const nextScale = Math.max(MIN_SCALE, Math.min(stretch ? fitX : Math.min(fitX, fitY), MAX_SCALE))
+    const nextScaleY = stretch ? Math.max(MIN_SCALE, Math.min(fitY, 1e7)) : nextScale
+    setScale(nextScale)
+    setVerticalRatio(nextScaleY / nextScale)
+    setPan({ x: -(left / 2 + right / 2) * nextScale, y: (bottom / 2 + top / 2) * nextScaleY })
+  }, [plotView, canvasWidth, canvasHeight])
+
+  const lastPlot = useRef<string | null>(null)
+  useEffect(() => {
+    const key = plotView ? `${plotView.id}:${plotView.stretch}` : null
+    if (lastPlot.current === key) return
+    lastPlot.current = key
+    fitPlot()
+  }, [plotView, fitPlot])
+
   const originX = canvasWidth / 2 + pan.x
+  const guideEdges = useMemo(() => geometryGuides(objects2D, '2d', ([x,y]) => [x,y,0])
+    .flatMap(layer => layer.edges), [objects2D])
   const originY = canvasHeight / 2 + pan.y
+  const scaleY = scale * verticalRatio
 
   const toCanvasPoint = (x: number, y: number): [number, number] => {
-    return [originX + x * scale, originY - y * scale]
+    return [originX + x * scale, originY - y * scaleY]
   }
 
   // ==========================================================
@@ -241,61 +322,41 @@ export default function Canvas2D({
   // Grid
   const gridLines = useMemo(() => {
     const lines: React.ReactNode[] = []
-    const left = -1 - originX / scale
-    const right = 1 + (canvasWidth - originX) / scale
-    const bottom = -1 - (canvasHeight - originY) / scale
-    const top = 1 + originY / scale
-
-    const startX = Math.floor(left)
-    const endX = Math.ceil(right)
-    const startY = Math.floor(bottom)
-    const endY = Math.ceil(top)
-
-    const step = scale < 12 ? 5 : scale < 22 ? 2 : 1
-
-    for (let x = Math.floor(startX / step) * step; x <= endX; x += step) {
-      if (x === 0) continue
+    for (const x of gridTicks(-originX / scale, (canvasWidth - originX) / scale, scale)) {
       const [canvasX] = toCanvasPoint(x, 0)
       lines.push(
         <Line key={`grid-x-${x}`} points={[canvasX, 0, canvasX, canvasHeight]} stroke="#E2E8F0" strokeWidth={1} />
       )
     }
 
-    for (let y = Math.floor(startY / step) * step; y <= endY; y += step) {
-      if (y === 0) continue
+    for (const y of gridTicks((originY - canvasHeight) / scaleY, originY / scaleY, scaleY)) {
       const [, canvasY] = toCanvasPoint(0, y)
       lines.push(
         <Line key={`grid-y-${y}`} points={[0, canvasY, canvasWidth, canvasY]} stroke="#E2E8F0" strokeWidth={1} />
       )
     }
     return lines
-  }, [canvasWidth, canvasHeight, originX, originY, scale])
+  }, [canvasWidth, canvasHeight, originX, originY, scale, scaleY])
 
 
   const axisLabels = useMemo(() => {
     const labels: React.ReactNode[] = []
-    const left = Math.floor((-originX) / scale) - 1
-    const right = Math.ceil((canvasWidth - originX) / scale) + 1
-    const bottom = Math.floor(-(canvasHeight - originY) / scale) - 1
-    const top = Math.ceil(originY / scale) + 1
-    const step = scale < 12 ? 5 : scale < 22 ? 2 : 1
-
-    for (let x = Math.floor(left / step) * step; x <= right; x += step) {
-      if (x === 0) continue
-      const [canvasX, axisY] = toCanvasPoint(x, 0)
+    const labelX = Math.max(4, Math.min(canvasWidth - 55, originX + 8))
+    const labelY = Math.max(4, Math.min(canvasHeight - 42, originY + 6))
+    for (const x of gridTicks(-originX / scale, (canvasWidth - originX) / scale, scale)) {
+      const [canvasX] = toCanvasPoint(x, 0)
       if (canvasX < 10 || canvasX > canvasWidth - 25) continue
-      labels.push(<Text key={`label-x-${x}`} x={canvasX + 4} y={axisY + 6} text={String(x)} fontSize={11} fill="#64748B" />)
+      labels.push(<Text key={`label-x-${x}`} x={canvasX + 4} y={labelY} text={formatNumber.format(x)} fontSize={11} fill="#64748B" />)
     }
 
-    for (let y = Math.floor(bottom / step) * step; y <= top; y += step) {
-      if (y === 0) continue
-      const [axisX, canvasY] = toCanvasPoint(0, y)
+    for (const y of gridTicks((originY - canvasHeight) / scaleY, originY / scaleY, scaleY)) {
+      const [, canvasY] = toCanvasPoint(0, y)
       if (canvasY < 15 || canvasY > canvasHeight - 15) continue
-      labels.push(<Text key={`label-y-${y}`} x={axisX + 8} y={canvasY - 7} text={String(y)} fontSize={11} fill="#64748B" />)
+      labels.push(<Text key={`label-y-${y}`} x={labelX} y={canvasY - 7} text={formatNumber.format(y)} fontSize={11} fill="#64748B" />)
     }
 
     return labels
-  }, [canvasWidth, canvasHeight, originX, originY, scale])
+  }, [canvasWidth, canvasHeight, originX, originY, scale, scaleY])
 
 
   const handleWheel = (event: any) => {
@@ -307,7 +368,7 @@ export default function Canvas2D({
 
     const oldScale = scale
     const zoomFactor = event.evt.deltaY < 0 ? 1.1 : 1 / 1.1
-    const newScale = Math.min(200, Math.max(10, oldScale * zoomFactor))
+    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * zoomFactor))
     const mathX = (pointer.x - originX) / oldScale
     const mathY = (originY - pointer.y) / oldScale
     const newOriginX = pointer.x - mathX * newScale
@@ -354,18 +415,18 @@ export default function Canvas2D({
     setLocalSelection(null); // Kéo di chuyển -> ẩn menu
   }
 
-  const handlePointTargetMouseDown = (
+  const handlePointTargetClick = (
     event: any,
     point: CanvasPointTarget,
   ) => {
+    // Consume the completed click as well as pointer-down: otherwise the
+    // stage clears the start point immediately after the second press.
+    event.cancelBubble = true
     if (selectedStartPoint) {
       // Already have a start point selected
       if (selectedStartPoint.name === point.name) {
-        // Clicked the same point - cancel selection
-        event.cancelBubble = true
-        setSelectedStartPoint(null)
-        setLocalSelection(null)
-        lastPointPress.current = null
+        // Repeated clicks on the start point must not cancel the connection.
+        return
       } else {
         // Clicked a different point - connect them
         event.cancelBubble = true
@@ -394,7 +455,11 @@ export default function Canvas2D({
     setIsDragging(false)
   }
 
-  const resetView = () => { setScale(40); setPan({ x: 0, y: 0 }); setLocalSelection(null); setSelectedStartPoint(null); }
+  const resetView = () => {
+    fitPlot()
+    setLocalSelection(null)
+    setSelectedStartPoint(null)
+  }
 
   const hasObjects = objects2D.length > 0
   
@@ -452,35 +517,90 @@ export default function Canvas2D({
             
             // ---------------- FUNCTION ----------------
             if (item.object.kind === 'function') {
-              const functionObject = item.object as FunctionObject
-              const linePoints: number[] = []
-
-              functionObject.points.forEach(([x, y]) => {
-                if (!Number.isFinite(x) || !Number.isFinite(y)) return
-                const [canvasX, canvasY] = toCanvasPoint(x, y)
-                linePoints.push(canvasX, canvasY)
-              })
-
-              if (linePoints.length < 4) return null
-              
-              const currentColor = getRenderColor(item.id, functionObject.color || '', '#4F46E5')
+              const graph = item.object
+              const segments = graph.segments ?? (graph.points ? [graph.points] : [])
+              const currentColor = getRenderColor(item.id, graph.color || '', '#4F46E5')
 
               return (
                 <React.Fragment key={item.id}>
-                  <Line
-                    points={linePoints}
-                    stroke={currentColor}
-                    dash={getDash(functionObject.line_style, 2.5)}
-                    strokeWidth={isSelected ? 4 : 2.5} // Nhấn mạnh độ dày khi click
-                    tension={0}
-                    lineCap="round"
-                    lineJoin="round"
-                    hitStrokeWidth={10} // Giúp dễ click vào nét vẽ hơn
-                    onClick={(e) => handleObjectClick(e, item.id)}
-                    onTap={(e) => handleObjectClick(e, item.id)}
-                  />
+                  {graph.guides?.map((guide, index) => {
+                    const tangent = 'role' in guide && guide.role === 'tangent'
+                    const ends = 'x' in guide
+                      ? [toCanvasPoint(guide.x, 0), toCanvasPoint(guide.x, 1)] as const
+                      : [toCanvasPoint(0, guide.intercept), toCanvasPoint(1, guide.intercept + guide.slope)] as const
+                    const clipped = clipInfiniteLine(...ends, canvasWidth, canvasHeight)
+                    if (!clipped) return null
+                    const color = tangent ? '#b45309' : '#64748b'
+                    const [start] = clipped
+                    const label = tangent ? 'Tiếp tuyến' : 'x' in guide
+                      ? `x = ${formatNumber.format(guide.x)}`
+                      : guide.slope === 0 ? `y = ${formatNumber.format(guide.intercept)}` : 'Tiệm cận xiên'
+                    return <React.Fragment key={index}>
+                      <Line points={clipped.flat()} stroke={color} dash={tangent ? undefined : [7, 5]}
+                        strokeWidth={2} listening={false} />
+                      <Text x={Math.min(start[0] + 5, canvasWidth - 90)} y={Math.max(4, start[1] - 15)}
+                        text={label} fontSize={12} fill={color} listening={false} />
+                    </React.Fragment>
+                  })}
+                  {segments.filter(segment => segment.length >= 2).map((segment, index) => (
+                    <Line key={index}
+                      points={segment.flatMap(([x, y]) => toCanvasPoint(x, y))}
+                      stroke={currentColor} dash={getDash(graph.line_style, 2.5)}
+                      strokeWidth={isSelected ? 4 : 2.5}
+                      lineCap="round" lineJoin="round" hitStrokeWidth={10}
+                      onClick={(e) => handleObjectClick(e, item.id)}
+                      onTap={(e) => handleObjectClick(e, item.id)}
+                    />
+                  ))}
+                  {graph.markers?.map(({ position, label, open }) => {
+                    const [x, y] = toCanvasPoint(...position)
+                    return <React.Fragment key={label + position.join(',')}>
+                      <Circle x={x} y={y} radius={4} fill={open ? '#F8FAFC' : currentColor}
+                        stroke={open ? currentColor : 'white'} strokeWidth={open ? 2 : 1}
+                        onClick={e => handleObjectClick(e, item.id)} onTap={e => handleObjectClick(e, item.id)} />
+                      <Text x={x + 6} y={y - 16} fill="#1e293b" fontSize={12} listening={false}
+                        text={`${label} (${position.map(value => formatNumber.format(value)).join('; ')})`} />
+                    </React.Fragment>
+                  })}
                 </React.Fragment>
               )
+            }
+
+            if (item.object.kind === 'area_between') {
+              const area = item.object
+              const color = getRenderColor(item.id, area.color || '', '#0f766e')
+              return <React.Fragment key={item.id}>
+                {area.bands.map((band, index) => {
+                  const first = band.flatMap(([x, y]) => toCanvasPoint(x, y))
+                  const second = band.flatMap(([x, , y]) => toCanvasPoint(x, y))
+                  const outline = first.concat([...band].reverse().flatMap(([x, , y]) => toCanvasPoint(x, y)))
+                  return <React.Fragment key={index}>
+                    <Line points={outline} closed fill={color} opacity={isSelected ? .3 : .2}
+                      onClick={e => handleObjectClick(e, item.id)} onTap={e => handleObjectClick(e, item.id)} />
+                    <Line points={first} stroke={color} strokeWidth={2.5} listening={false} />
+                    <Line points={second} stroke="#b45309" strokeWidth={2.5} listening={false} />
+                  </React.Fragment>
+                })}
+              </React.Fragment>
+            }
+
+            if (item.object.kind === 'histogram') {
+              const histogram = item.object
+              const color = getRenderColor(item.id, histogram.color || '', '#2563eb')
+              return <React.Fragment key={item.id}>
+                <Text x={12} y={12} text={histogram.y_label} fontSize={13} fill="#1e293b" listening={false} />
+                {histogram.bars.map(({ lower, upper, frequency, height }) => {
+                  const [x, y] = toCanvasPoint(lower, height)
+                  const width = (upper - lower) * scale
+                  return <React.Fragment key={lower}>
+                    <Rect x={x} y={y} width={width} height={originY - y}
+                      fill={color} stroke={color} strokeWidth={1} opacity={isSelected ? .6 : .4}
+                      onClick={e => handleObjectClick(e, item.id)} onTap={e => handleObjectClick(e, item.id)} />
+                    {width >= 24 && <Text x={x} y={y - 16} width={width}
+                      align="center" text={String(frequency)} fill="#1e293b" fontSize={12} listening={false} />}
+                  </React.Fragment>
+                })}
+              </React.Fragment>
             }
 
             // ---------------- POLYGON ----------------
@@ -630,17 +750,10 @@ export default function Canvas2D({
               }
 
               const color = getRenderColor(item.id, angle.color || '', '#2563EB')
-              const labelPoint = toCanvasPoint(
-                vertex[0] + (ux + vx) * radius * 0.75,
-                vertex[1] + (uy + vy) * radius * 0.75,
-              )
               return <React.Fragment key={item.id}>
                 <Line points={marker} stroke={color} strokeWidth={isSelected ? 3.5 : 2}
                   lineCap="round" lineJoin="round" hitStrokeWidth={12}
                   onClick={(e) => handleObjectClick(e, item.id)} onTap={(e) => handleObjectClick(e, item.id)} />
-                {!angle.right_angle && <Text x={labelPoint[0] + 4} y={labelPoint[1] - 16}
-                  text={`${angle.label} = ${Math.round(angle.angle_degrees * 10) / 10}°`}
-                  fontSize={12} fill={color} onClick={(e) => handleObjectClick(e, item.id)} />}
               </React.Fragment>
             }
 
@@ -806,6 +919,14 @@ export default function Canvas2D({
             <Text x={canvasWidth / 2 - 120} y={canvasHeight / 2 - 10} text="Chưa có đối tượng trên mặt phẳng" fontSize={15} fill="#94A3B8" />
           )}
 
+          {guideEdges.map(edge => <Line key={guideKey(edge)}
+            points={edge.flatMap(([x,y]) => toCanvasPoint(x,y))}
+            stroke="#0E7490" strokeWidth={2} listening={false} />)}
+          {measurementLabels(objects2D, '2d').map(({key, text, position}) => {
+            const [x, y] = toCanvasPoint(position[0], position[1])
+            return <Text key={key} x={x + 4} y={y - 16} text={text} fontSize={13}
+              fill="#1E40AF" listening={false} />
+          })}
           {!selectedStartPoint && pointTargets.length > 0 && (
             <Text
               x={12}
@@ -866,7 +987,10 @@ export default function Canvas2D({
                 y={y}
                 radius={10}
                 fill="transparent"
-                onMouseDown={(event) => handlePointTargetMouseDown(event, point)}
+                onMouseDown={(event) => { event.cancelBubble = true }}
+                onTouchStart={(event) => { event.cancelBubble = true }}
+                onClick={(event) => handlePointTargetClick(event, point)}
+                onTap={(event) => handlePointTargetClick(event, point)}
               />
             )
           })}
@@ -915,10 +1039,10 @@ export default function Canvas2D({
 
       {/* TOOLBAR */}
       <div style={{ position: 'absolute', bottom: 12, right: 12, display: 'flex', gap: 6, padding: '6px 8px', background: 'rgba(255,255,255,0.94)', borderRadius: 10, boxShadow: '0 2px 8px rgba(15,23,42,0.08)' }}>
-        <button onClick={() => setScale(c => Math.min(200, c * 1.15))} style={{ width: 30, height: 28, border: 'none', borderRadius: 6, background: '#F1F5F9', cursor: 'pointer' }}>+</button>
-        <span style={{ minWidth: 58, textAlign: 'center', fontSize: 12, color: '#475569', alignSelf: 'center' }}>{Math.round(scale)} px/u</span>
-        <button onClick={() => setScale(c => Math.max(10, c / 1.15))} style={{ width: 30, height: 28, border: 'none', borderRadius: 6, background: '#F1F5F9', cursor: 'pointer' }}>−</button>
-        <button onClick={resetView} style={{ height: 28, padding: '0 9px', border: 'none', borderRadius: 6, background: '#EEF2FF', color: '#3730A3', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Reset</button>
+        <button onClick={() => setScale(c => Math.min(MAX_SCALE, c * 1.15))} style={{ width: 30, height: 28, border: 'none', borderRadius: 6, background: '#F1F5F9', cursor: 'pointer' }}>+</button>
+        <span style={{ minWidth: 58, textAlign: 'center', fontSize: 12, color: '#475569', alignSelf: 'center' }}>{formatNumber.format(Number(scale.toPrecision(3)))} px/u</span>
+        <button onClick={() => setScale(c => Math.max(MIN_SCALE, c / 1.15))} style={{ width: 30, height: 28, border: 'none', borderRadius: 6, background: '#F1F5F9', cursor: 'pointer' }}>−</button>
+        <button onClick={resetView} style={{ height: 28, padding: '0 9px', border: 'none', borderRadius: 6, background: '#EEF2FF', color: '#3730A3', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Vừa khung</button>
       </div>
 
       <div style={{ position: 'absolute', left: 14, bottom: 12, padding: '6px 9px', background: 'rgba(255,255,255,0.88)', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 11, color: '#64748B' }}>

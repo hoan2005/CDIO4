@@ -96,6 +96,16 @@ export interface ConeObject extends ObjectStyle {
   radius: number
   height: number
 }
+export interface CylinderObject extends ObjectStyle {
+  id: string
+  kind: 'cylinder'
+  dimension: '3d'
+  label: string
+  base_center: [number, number, number]
+  top_center: [number, number, number]
+  radius: number
+  height: number
+}
 export interface PlaneObject extends ObjectStyle {
   id: string
   kind: 'plane'
@@ -109,7 +119,27 @@ export interface FunctionObject extends ObjectStyle {
   kind: 'function'
   label: string
   dimension: '2d'
-  points: [number, number][]
+  points?: [number, number][]
+  segments?: [number, number][][]
+  guides?: Array<{ x: number } | { slope: number; intercept: number; role?: 'tangent' }>
+  markers?: Array<{ position: [number, number]; label: string; open?: boolean }>
+}
+
+export interface AreaBetweenObject extends ObjectStyle {
+  id: string
+  kind: 'area_between'
+  dimension: '2d'
+  label: string
+  bands: [number, number, number][][]
+}
+
+export interface HistogramObject extends ObjectStyle {
+  id: string
+  kind: 'histogram'
+  dimension: '2d'
+  label: string
+  y_label: string
+  bars: Array<{ lower: number; upper: number; frequency: number; height: number }>
 }
 
 // Đa giác 2D do backend draw_polygon_2d trả về.
@@ -217,13 +247,22 @@ export interface CubeObject extends ObjectStyle {
 // CANVAS OBJECT
 // =============================================
 
-export type CanvasObject =
+export interface MeasurementLabel {
+  kind: 'length' | 'angle' | 'point' | 'radius' | 'diameter' | 'height'
+  points: string[]
+  text: string
+}
+
+export type CanvasObject = { measurement_labels?: MeasurementLabel[] } & (
   | FunctionObject
+  | AreaBetweenObject
+  | HistogramObject
   | CircleObject
   | EllipseObject
   | HyperbolaObject
   | SphereObject
   | ConeObject
+  | CylinderObject
   | PlaneObject
   | PolygonObject
   | Polygon3DObject
@@ -234,7 +273,7 @@ export type CanvasObject =
   | PrismObject
   | LineObject
   | Line3DObject
-  | PointObject
+  | PointObject)
 
 
 
@@ -255,6 +294,11 @@ export interface CanvasDelta {
 
 export type MessageRole = 'user' | 'assistant'
 
+export interface ChatAttachments {
+  image?: File
+  audio?: Blob
+}
+
 export interface Message {
   id: string
   role: MessageRole
@@ -263,6 +307,7 @@ export interface Message {
 
   knowledge?: string[]
   isLoading?: boolean
+  attachments?: ChatAttachments
 }
 
 
@@ -330,7 +375,7 @@ export interface AppState {
   selectedObject: CanvasObjectSelection
   setSelectedObject: (selection: CanvasObjectSelection) => void
 
-  sendMessage: (text: string) => Promise<void>
+  sendMessage: (text: string, attachments?: ChatAttachments) => Promise<void>
   connectCanvasPoints: (startPoint: string, endPoint: string) => Promise<void>
   applyCanvasDelta: (delta: CanvasDelta) => void
   addCanvasObjects: (objects: CanvasObject[]) => void
@@ -342,6 +387,7 @@ export interface AppState {
   removeObject: (id: string, message?: string) => Promise<void>
   
   clearCanvas: () => Promise<void>
+  deleteConversation: () => Promise<void>
   updatePoint: (id: string, x: number, y: number) => void
   toggleSidebar: () => void
   setCanvasMode: (mode: '2d' | '3d') => void

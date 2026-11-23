@@ -1,0 +1,53 @@
+MINH HỌA TOÁN THPT TỪ CÂU LỆNH TIẾNG VIỆT
+
+1. Đồ thị hàm số trên Oxy
+   - Vẽ các hàm đa thức, phân thức, căn thức, mũ, logarit, lượng giác và giá trị tuyệt đối.
+   - Các nhánh được vẽ riêng tại điểm gián đoạn xác định được. Với phân thức
+     có nhân tử chung bị khử, vòng tròn rỗng biểu thị điểm khuyết.
+   - Có thể đánh dấu giao điểm với trục, cực đại và cực tiểu của đa thức,
+     phân thức. Hỗ trợ vẽ tiệm cận đứng, ngang và xiên của phân thức.
+   - Vẽ tiếp tuyến có hệ số góc hữu hạn tại một hoành độ và ghi tọa độ tiếp điểm.
+   - Ví dụ “Khảo sát và vẽ đồ thị hàm lập phương trừ ba lần x cộng một.”
+   - Ví dụ “Vẽ đồ thị y = (x² + 1)/(x - 1), đánh dấu các đường tiệm cận.”
+   - Ví dụ “Vẽ parabol y = x² và tiếp tuyến tại điểm có hoành độ 1.”
+   - Ví dụ “Vẽ đồ thị tang của x trên đoạn từ -π đến π.”
+
+2. Miền diện tích và tích phân
+   - Tô miền giữa đồ thị và trục Ox hoặc giữa hai đồ thị trong khoảng đã chọn.
+   - Tại điểm hai đường cắt nhau, miền tô được chia thành các phần riêng.
+   - Ví dụ “Tô miền giữa parabol y = x² và đường thẳng y = x + 2, rồi tính diện tích.”
+   - Ví dụ “Tô miền giữa y = sin(x) và trục Ox từ 0 đến π.”
+
+3. Hình học trong không gian Oxyz
+   - Hiển thị ba trục x, y, z với lưới đặt trong mặt phẳng Oxy.
+   - Dựng mặt phẳng từ hệ số phương trình tổng quát hoặc từ một điểm và pháp tuyến.
+   - Dựng đường thẳng từ phương trình tham số thông qua điểm đi qua và vectơ chỉ phương.
+   - Dựng mặt cầu từ phương trình khai triển bằng cách tính tâm và bán kính.
+   - Dựng hình trụ từ bán kính và chiều cao hoặc hai tâm đáy. Hình nón xoay
+     đúng theo trục nối tâm đáy với đỉnh.
+   - Ví dụ “Vẽ mặt phẳng 2x - y + 3z = 6 và đường thẳng x = 1 + 2t, y = -t, z = 3 + t.”
+   - Ví dụ “Vẽ mặt cầu x² + y² + z² - 2x + 4y - 6z - 2 = 0.”
+   - Ví dụ “Vẽ hình trụ bán kính 2, hai tâm đáy là (1; 2; 3) và (4; 6; 3).”
+
+4. Thống kê mẫu số liệu ghép nhóm
+   - Vẽ biểu đồ từ cận dưới, cận trên và tần số của từng nhóm.
+   - Nhóm cùng độ rộng dùng tần số làm chiều cao. Nhóm khác độ rộng dùng
+     mật độ tần số để diện tích cột biểu thị tần số.
+   - Ví dụ “Vẽ biểu đồ cho các nhóm [10;20) có 4 bạn, [20;30) có 7 bạn và [30;50) có 6 bạn.”
+
+5. Thao tác trên canvas
+   - Canvas tự chuyển theo chiều của hình vừa thêm. Khi thêm cả hình 2D và 3D
+     trong cùng lượt, canvas mở chế độ 3D.
+   - Đồ thị và biểu đồ mới được căn vào vùng nhìn. Nút “Vừa khung” căn lại
+     vùng nhìn cho các đồ thị hoặc biểu đồ đang hiển thị.
+
+Phạm vi hiện tại
+   - Với miền tích phân, hai hàm cần liên tục trên đoạn tô. Canvas minh họa
+     miền và chatbot giải thích cách tính diện tích khi được yêu cầu.
+   - Đồ thị được hiển thị bằng các điểm lấy mẫu. Xác định tự động nghiệm để
+     ngắt nhánh và đánh dấu điểm tập trung vào các dạng hàm THPT thông dụng.
+   - Luồng chat dùng Gemini để chuyển câu tiếng Việt thành kế hoạch. Bài kiểm
+     thử API dùng phản hồi Gemini mô phỏng để kiểm tra thực thi và lưu hình.
+
+Đề tham khảo từ năm 2025 của Bộ Giáo dục và Đào tạo
+https://vqa.moet.gov.vn/vi/news/tin-tuc-su-kien/de-thi-tham-khao-ky-thi-tot-nghiep-thpt-tu-nam-2025-159.html

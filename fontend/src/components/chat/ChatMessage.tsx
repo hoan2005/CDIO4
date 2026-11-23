@@ -4,6 +4,7 @@ import remarkMath from 'remark-math'
 import remarkGfm from 'remark-gfm'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
+import AttachmentPreview from './AttachmentPreview'
 
 // Gỡ backtick vô tình bọc quanh công thức LaTeX, ví dụ: `$x^2$` -> $x^2$
 // Nếu không xử lý bước này, ReactMarkdown sẽ nhận diện backtick trước và
@@ -209,6 +210,8 @@ export default function ChatMessage({
             <LoadingDots />
           ) : (
             <div className="chat-markdown">
+              {message.attachments?.image && <AttachmentPreview blob={message.attachments.image} kind="image" />}
+              {message.attachments?.audio && <AttachmentPreview blob={message.attachments.audio} kind="audio" />}
               <ReactMarkdown
                 remarkPlugins={[remarkMath, remarkGfm]}
                 rehypePlugins={[rehypeKatex]}

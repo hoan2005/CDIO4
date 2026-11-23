@@ -47,7 +47,7 @@ class LLMClient:
     def generate_json(
         self,
         system_prompt: str,
-        user_prompt: str,
+        user_prompt: str | list,
         temperature: float = 0.2,
     ) -> Dict[str, Any]:
         """Call Gemini and parse a JSON object from the response."""

@@ -46,6 +46,7 @@ from geometry_validator.coordinate_repair import CoordinateRepair
 from geometry_validator.construction_solver import ConstructionSolver
 from geometry_validator.coordinate_solver_controller import CoordinateSolverController
 from geometry_validator.geometry_solver_pipeline import GeometrySolverPipeline
+from geometry_validator.sketch_measurements import check_sketch_measurements
 
 
 
@@ -64,6 +65,9 @@ DRAW_OPERATIONS = {
     "draw_point",
     "draw_line",
     "draw_function",
+    "draw_area_between",
+    "draw_cylinder",
+    "draw_histogram",
     "draw_cube",
     "draw_prism",
     "draw_pyramid",
@@ -597,6 +601,8 @@ def _collect_state_points(state: Dict[str, Any]) -> Dict[str, List[float]]:
         coords = obj.get("coordinates")
         if isinstance(coords, dict):
             for name, values in coords.items():
+                if obj.get("kind") == "plane" and name in {"origin", "normal"}:
+                    continue
                 if name == "center" and isinstance(obj.get("center_name"), str):
                     continue
                 add_point(name, values)
@@ -853,6 +859,24 @@ def _validate_geometry_tasks(
             if name in all_coords and (name not in state_names or is_update):
                 all_controls[name] = dict(ctrl)
 
+        if task_input.get("drawing_mode") == "sketch" and isinstance(task_input.get("sketch_measurements", []), list):
+            measures = list(task_input.get("sketch_measurements", []))
+            structural = []
+            for constraint in raw_constraints:
+                if isinstance(constraint, dict) and constraint.get("type") in {
+                    "segment_length", "distance", "point_distance", "distance_between_points",
+                }:
+                    measure = {
+                        "type": "length", "points": constraint.get("segment", constraint.get("points")),
+                        "value": constraint.get("length", constraint.get("distance", constraint.get("value"))),
+                    }
+                    if measure not in measures:
+                        measures.append(measure)
+                else:
+                    structural.append(constraint)
+            task_input["sketch_measurements"] = measures
+            raw_constraints = structural
+
         task_data.append({
             "task": task, "input": task_input, "coords": normalized_coords,
             "constraints": raw_constraints, "constructions": raw_constructions,
@@ -1024,8 +1048,9 @@ def _validate_geometry_tasks(
         else:
             # Chuẩn hóa lỗi của pipeline theo hợp đồng mà phần xử lý phía dưới đang dùng.
             solver_error = result.get("message", "Không giải/kiểm định được hệ tọa độ.")
-            result = {"success": False, "coordinates": all_coords, "results": [],
-                      "attempts": 0, "validation_level": result.get("stage", "solver_failed"),
+            validation = result.get("validation_result") or {}
+            result = {"success": False, "coordinates": all_coords, "results": validation.get("results", []),
+                      "attempts": validation.get("attempts", 0), "validation_level": result.get("stage", "solver_failed"),
                       "message": solver_error, "solver_result": result.get("solver_result")}
     else:
         result = {"success": True, "coordinates": all_coords, "constraints": [],
@@ -1056,6 +1081,19 @@ def _validate_geometry_tasks(
         }
 
     final_coords = result.get("coordinates") or all_coords
+    sketch_measures = []
+    for item in task_data:
+        data = item["input"]
+        measures = data.get("sketch_measurements", [])
+        try:
+            if not isinstance(measures, list):
+                raise ValueError("sketch_measurements phải là danh sách.")
+            sketch_measures.extend(measures)
+            if item["task"].get("operation") == "draw_angle" and data.get("drawing_mode") == "sketch" and data.get("angle_degrees") is not None:
+                sketch_measures.append({"type": "angle", "points": data["points"], "value": data["angle_degrees"]})
+            check_sketch_measurements(sketch_measures, final_coords)
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"ok": False, "task_id": item["task"]["id"], "message": str(exc), "reports": reports}
     final_results = result.get("results") or []
     if state_constraint_entries:
         state_validation = []
@@ -1092,7 +1130,8 @@ def _validate_geometry_tasks(
                 for child in value.values(): find_names(child)
             elif isinstance(value, (list, tuple)):
                 for child in value: find_names(child)
-        find_names({k: v for k, v in task_input.items() if k not in {"coordinate_control", "constraints", "constructions"}})
+        find_names({k: v for k, v in task_input.items() if k not in {
+            "coordinate_control", "constraints", "constructions", "measurement_labels"}})
         task_input["coordinates"] = {
             name: list(final_coords[name]) for name in names if name in final_coords
         }
@@ -1263,6 +1302,8 @@ def _answer_math_only(question: str, conversation_id: str, state: Dict[str, Any]
     try:
         answer = _generate_text(FINAL_ANSWER_SYSTEM_PROMPT, prompt)
     except LLMClientError as exc:
+        if getattr(exc.__cause__, "code", None) == 429:
+            raise HTTPException(429, "Gemini đã chạm hạn mức. Hãy thử lại sau.") from exc
         logger.exception("Lỗi LLM khi tạo lời giải")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
@@ -1305,7 +1346,10 @@ def _explain_after_drawing(
         if item.get("status") == "success" and isinstance(item.get("result"), list):
             for obj in item["result"]:
                 if isinstance(obj, dict):
-                    objects.append({k: obj[k] for k in ("id", "kind", "label", "dimension") if k in obj})
+                    fields = ("id", "kind", "label", "dimension", "expression", "other_expression",
+                              "x_range", "markers", "guides", "coefficients", "center", "radius", "height",
+                              "y_label", "bars")
+                    objects.append({key: obj[key] for key in fields if key in obj})
 
     prompt = build_final_answer_user_prompt(
         mode="after_drawing",
@@ -1349,6 +1393,8 @@ def xuly_thongtin(current_question: str, conversation_id: str = DEFAULT_CONVERSA
         plan = create_plan(current_question, state, llm_client)
         print("plan-----------",plan)
     except LLMClientError as exc:
+        if getattr(exc.__cause__, "code", None) == 429:
+            raise HTTPException(429, "Gemini đã chạm hạn mức. Hãy thử lại sau.") from exc
         logger.exception("Lỗi gọi LLM khi tạo plan")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
     except PlanValidationError as exc:

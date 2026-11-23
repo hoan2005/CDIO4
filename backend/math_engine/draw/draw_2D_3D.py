@@ -2,7 +2,7 @@ import math
 
 from math_engine.draw.Common import (
         clean_vertex_names, common_fields, get_dict, make_edge, make_id,
-        positive_number, require_dict, validate_point,
+        positive_number, require_dict, unit_vector, validate_point,
     )
 
 
@@ -21,6 +21,24 @@ def draw_line(input_data: dict, state: dict = None) -> dict:
     }
     """
     input_data = require_dict(input_data)
+
+    if "direction" in input_data or "origin" in input_data:
+        origin = validate_point(input_data.get("origin"), "điểm đi qua")
+        direction = validate_point(input_data.get("direction"), "vectơ chỉ phương", dims=(len(origin),))
+        unit = unit_vector(direction, "Vectơ chỉ phương")
+        # Scale the representative segment to keep both points distinct and
+        # near the origin of the line even when direction has a large norm.
+        offset = max(1.0, *(abs(value) * 1e-12 for value in origin))
+        end = validate_point(
+            [a + offset * b for a, b in zip(origin, unit)], "điểm thứ hai", dims=(len(origin),)
+        )
+        return {
+            "id": make_id("line"), "kind": "line",
+            "dimension": "3d" if len(origin) == 3 else "2d",
+            "extent": "infinite", "label": input_data.get("name") or "Đường thẳng",
+            "points": [origin, end], "direction": direction,
+            **common_fields(input_data),
+        }
 
     names = input_data.get("points")
     if not isinstance(names, list) or len(names) != 2:
@@ -54,7 +72,7 @@ def draw_line(input_data: dict, state: dict = None) -> dict:
         "id": make_id("line"),
         "kind": "line",
         "dimension": "2d" if len(a) == 2 else "3d",
-        "label": f"Đường thẳng {a_name}{b_name}",
+        "label": input_data.get("name") or f"Đường thẳng {a_name}{b_name}",
         "extent": extent,
 
         # Lưu tham chiếu đến hai điểm
@@ -107,8 +125,8 @@ def draw_plane(input_data: dict, state: dict = None) -> dict:
     """
     Mặt phẳng cho Canvas 2D hoặc 3D.
 
-    Input: dimension, name, role, style, coordinates (origin + các dữ liệu khác),
-    coordinate_control, constraints.
+    Input 3D: coefficients [a,b,c,d] cho ax+by+cz+d=0,
+    hoặc coordinates với origin/normal.
     """
     input_data = require_dict(input_data)
 
@@ -118,16 +136,31 @@ def draw_plane(input_data: dict, state: dict = None) -> dict:
 
     dims = 2 if dimension == "2d" else 3
     coordinates = get_dict(input_data, "coordinates")
-
-    origin = coordinates.get("origin", [0.0] * dims)
-    origin = validate_point(origin, "origin", dims=(dims,))
+    coefficients = None
+    if "coefficients" in input_data:
+        if dims != 3:
+            raise ValueError("Phương trình mặt phẳng cần không gian 3D.")
+        coefficients = validate_point(input_data["coefficients"], "hệ số mặt phẳng", dims=(4,))
+        normal = unit_vector(coefficients[:3], "Pháp tuyến")
+        scale = max(map(abs, coefficients[:3]))
+        distance = -(coefficients[3] / scale) / math.hypot(*(value / scale for value in coefficients[:3]))
+        origin = validate_point([distance * value for value in normal], "điểm thuộc mặt phẳng", dims=(3,))
+    else:
+        origin = validate_point(input_data.get("origin", coordinates.get("origin", [0.0] * dims)),
+                                "origin", dims=(dims,))
+        normal = None
+        if dims == 3:
+            raw_normal = validate_point(input_data.get("normal", coordinates.get("normal", [0, 0, 1])),
+                                        "pháp tuyến", dims=(3,))
+            normal = unit_vector(raw_normal, "Pháp tuyến")
 
     return {
         "id": make_id("plane"),
         "kind": "plane",
         "dimension": dimension,
         "label": input_data.get("name", "Mặt phẳng"),
-        "coordinates": {**coordinates, "origin": origin},
+        "coordinates": {**coordinates, "origin": origin, **({"normal": normal} if normal else {})},
+        **({"coefficients": coefficients} if coefficients is not None else {}),
         **common_fields(input_data, style_default_color="#2563eb"),
     }
 
@@ -168,7 +201,10 @@ def draw_angle(input_data: dict, state: dict = None) -> dict:
             raise ValueError("angle_degrees phải là số.")
         if not math.isfinite(requested_angle) or not 0 < requested_angle < 180:
             raise ValueError("angle_degrees phải nằm giữa 0 và 180.")
-        if abs(angle_degrees - requested_angle) > 0.5:
+        if input_data.get("drawing_mode") == "sketch":
+            from geometry_validator.sketch_measurements import check_sketch_measurements
+            check_sketch_measurements([{"type": "angle", "points": names, "value": requested_angle}], coordinates)
+        elif abs(angle_degrees - requested_angle) > 0.5:
             raise ValueError("Tọa độ các điểm không khớp với số đo góc được yêu cầu.")
     if right_angle and abs(angle_degrees - 90) > 0.5:
         raise ValueError("Không thể đánh dấu góc vuông vì tọa độ hiện tại không tạo góc 90 độ.")

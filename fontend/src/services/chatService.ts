@@ -1,5 +1,6 @@
 import type {
   CanvasObject,
+  ChatAttachments,
   ChatRequest,
   ChatResponse,
 } from '@/types'
@@ -7,12 +8,40 @@ import type {
 
 const API_BASE_URL = 'http://localhost:8000'
 
+function encodeMedia(blob?: Blob): Promise<{ mime_type: string; data: string } | undefined> {
+  if (!blob) return Promise.resolve(undefined)
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const mime = blob.type.split(';')[0]
+      const dataUrl = String(reader.result)
+      resolve({
+        mime_type: mime === 'audio/mp4' ? 'audio/m4a' : mime,
+        data: dataUrl.slice(dataUrl.indexOf(',') + 1),
+      })
+    }
+    reader.onerror = () => reject(new Error('Không thể đọc tệp đính kèm.'))
+    reader.readAsDataURL(blob)
+  })
+}
 
 export const chatService = {
+  async deleteConversation(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/conversations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  },
 
   async send(
-    request: ChatRequest
+    request: ChatRequest,
+    attachments?: ChatAttachments,
   ): Promise<ChatResponse> {
+    const [image, audio] = await Promise.all([
+      encodeMedia(attachments?.image),
+      encodeMedia(attachments?.audio),
+    ])
 
     const response = await fetch(
       `${API_BASE_URL}/chat`,
@@ -23,19 +52,22 @@ export const chatService = {
           'Content-Type': 'application/json',
         },
 
-        body: JSON.stringify(request),
+        body: JSON.stringify({ ...request, image, audio }),
       }
     )
 
 
     if (!response.ok) {
 
-      const errorText =
-        await response.text()
-
-      throw new Error(
-        `Chat API error: ${response.status} ${errorText}`
-      )
+      const payload = await response.json().catch(() => null)
+      if (response.status === 429) {
+        throw new Error('Gemini đã chạm hạn mức. Hãy thử lại sau.')
+      }
+      if (attachments && typeof payload?.detail === 'string' &&
+          (response.status === 422 || response.status === 502)) {
+        throw new Error(payload.detail)
+      }
+      throw new Error(`Không thể xử lý câu hỏi (HTTP ${response.status}).`)
     }
 
 

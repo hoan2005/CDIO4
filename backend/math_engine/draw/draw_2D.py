@@ -1,27 +1,11 @@
 import math
-import re
 from typing import Any
 
-import sympy as sp
-from sympy.parsing.sympy_parser import (
-    convert_xor,
-    implicit_multiplication_application,
-    parse_expr,
-    standard_transformations,
-)
-
-
 from math_engine.draw.Common import (
-        clean_vertex_names, common_fields, get_dict, is_real, make_edge, make_id,
-        positive_number, require_dict, validate_point,
-    )
-
-
-_SAFE_EXPR = re.compile(r"^[0-9A-Za-z_+\-*/^().,\s]+$")
-_TRANSFORMS = standard_transformations + (
-    implicit_multiplication_application,
-    convert_xor,
+    clean_vertex_names, common_fields, get_dict, get_list, make_edge, make_id,
+    positive_number, require_dict, validate_point,
 )
+from math_engine.draw.function_graph import draw_function
 
 
 def draw_polygon_2d(input_data: dict, state: dict = None) -> dict[str, Any]:
@@ -60,77 +44,6 @@ def draw_polygon_2d(input_data: dict, state: dict = None) -> dict[str, Any]:
         **common_fields(input_data),
     }
 
-
-def draw_function(input_data: dict, state: dict = None) -> dict[str, Any]:
-    """
-    Đồ thị hàm số y = f(x).
-
-    Input: expression "x**2", x_range [-5, 5], num_points (mặc định 200),
-    role, style, constraints.
-    """
-    input_data = require_dict(input_data)
-
-    expression = input_data.get("expression")
-    if not isinstance(expression, str) or not expression.strip():
-        raise ValueError("expression phải là chuỗi không rỗng.")
-    # Chặn ký tự lạ / dunder trước khi đưa vào sympy (parse_expr dùng eval).
-    if len(expression) > 200 or "__" in expression or not _SAFE_EXPR.match(expression):
-        raise ValueError("Biểu thức hàm số chứa ký tự không được phép.")
-
-    x = sp.Symbol("x")
-    try:
-        expr = parse_expr(
-            expression,
-            local_dict={"x": x},
-            transformations=_TRANSFORMS,
-        )
-        if not expr.free_symbols.issubset({x}):
-            raise ValueError("Hàm số chỉ được sử dụng biến x.")
-        func = sp.lambdify(x, expr, modules=["math"])
-    except ValueError:
-        raise
-    except Exception as exc:
-        raise ValueError(f"Biểu thức hàm số không hợp lệ: {exc}") from exc
-
-    x_range = input_data.get("x_range", [-5.0, 5.0])
-    if not isinstance(x_range, (list, tuple)) or len(x_range) != 2:
-        raise ValueError("x_range phải có dạng [x_min, x_max].")
-    if not all(is_real(v) for v in x_range):
-        raise ValueError("Giới hạn x phải là số hữu hạn.")
-    x_min, x_max = x_range
-    if x_min >= x_max:
-        raise ValueError("x_min phải nhỏ hơn x_max.")
-
-    num_points = input_data.get("num_points", 200)
-    if (
-        isinstance(num_points, bool)
-        or not isinstance(num_points, int)
-        or not 2 <= num_points <= 5000
-    ):
-        raise ValueError("num_points phải nằm trong khoảng 2–5000.")
-
-    points = []
-    for i in range(num_points + 1):
-        xv = x_min + (x_max - x_min) * i / num_points
-        try:
-            yv = float(func(xv))
-        except (ValueError, OverflowError, ZeroDivisionError, TypeError):
-            continue  # ngoài miền xác định / kết quả phức
-        if math.isfinite(yv):
-            points.append([xv, yv])
-
-    if len(points) < 2:
-        raise ValueError("Không đủ điểm hợp lệ để vẽ đồ thị.")
-
-    return {
-        "id": make_id("function"),
-        "kind": "function",
-        "dimension": "2d",
-        "label": str(expr),
-        "expression": expression,
-        "points": points,
-        **common_fields(input_data, style_default_color="#2563eb"),
-    }
 
 def _center_2d(input_data: dict, state: dict = None) -> list:
     """Lấy tọa độ tâm từ tọa độ trực tiếp hoặc tên điểm trong coordinates."""
@@ -248,5 +161,40 @@ def draw_hyperbola(input_data: dict, state: dict = None) -> dict:
         "b": b,
         "orientation": orientation,
         "coordinates": {"center": center},
+        **common_fields(input_data, style_default_color="#2563eb"),
+    }
+
+
+def draw_histogram(input_data: dict, state: dict = None) -> dict:
+    """Biểu đồ tần số cho mẫu số liệu ghép nhóm."""
+    input_data = require_dict(input_data)
+    raw_groups = get_list(input_data, "groups")
+    if not 1 <= len(raw_groups) <= 40:
+        raise ValueError("Biểu đồ cần từ 1 đến 40 nhóm.")
+    groups = []
+    for raw in raw_groups:
+        lo, hi, frequency = validate_point(raw, "nhóm [cận dưới, cận trên, tần số]", dims=(3,))
+        if hi <= lo or not math.isfinite(hi - lo) or frequency < 0 or not frequency.is_integer():
+            raise ValueError("Cận nhóm phải tăng và tần số phải là số nguyên không âm.")
+        groups.append((lo, hi, int(frequency)))
+    groups.sort()
+    if any(left[1] > right[0] for left, right in zip(groups, groups[1:])):
+        raise ValueError("Các khoảng ghép nhóm không được chồng lên nhau.")
+    if not any(group[2] for group in groups):
+        raise ValueError("Cần ít nhất một nhóm có tần số dương.")
+
+    first_width = groups[0][1] - groups[0][0]
+    density = any(not math.isclose(hi - lo, first_width, rel_tol=1e-9) for lo, hi, _ in groups)
+    bars = []
+    for lo, hi, frequency in groups:
+        height = frequency / (hi - lo) if density else float(frequency)
+        if not math.isfinite(height):
+            raise ValueError("Chiều cao cột vượt phạm vi vẽ.")
+        bars.append({"lower": lo, "upper": hi, "frequency": frequency, "height": height})
+    return {
+        "id": make_id("histogram"), "kind": "histogram", "dimension": "2d",
+        "label": input_data.get("name") or ("Mật độ tần số" if density else "Biểu đồ tần số"),
+        "y_label": "Mật độ tần số" if density else "Tần số",
+        "bars": bars,
         **common_fields(input_data, style_default_color="#2563eb"),
     }

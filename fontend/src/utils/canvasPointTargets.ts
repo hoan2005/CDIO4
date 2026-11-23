@@ -34,6 +34,7 @@ export function getCanvasPointTargets(
     if (object.kind === 'point') {
       add(object.label, object.position)
     }
+    if (object.center_name) add(object.center_name, object.center)
 
     if (
       object.kind === 'line'

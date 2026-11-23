@@ -18,6 +18,8 @@ def object_points(obj: Mapping[str, Any]) -> dict[str, list[float]]:
     coordinates = obj.get("coordinates")
     if isinstance(coordinates, Mapping):
         for name, position in coordinates.items():
+            if obj.get("kind") == "plane" and name in {"origin", "normal"}:
+                continue
             if name == "center" and isinstance(obj.get("center_name"), str):
                 continue
             if isinstance(name, str) and isinstance(position, (list, tuple)):
