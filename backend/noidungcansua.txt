@@ -11,4 +11,4 @@ hiện tại tôi bảo đổi màu cạnh CD và BD sang màu xanh nhưng nó c
  cần pahir  có vẽ đường thẳng dài và đường thẳng có đầu cuối( đoạn)
 
 
-hiện tại hình vẽ bị ngược nên  đưa trục Y thẳng đứng để có thể thấy hinh rõ hơn
+hiện tại hình vẽ bị ngược nên  đưa trục Y thẳng đứng để có thể thấy hinh rõ hơn 
