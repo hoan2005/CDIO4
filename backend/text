@@ -1,75 +1,27 @@
-2D — ràng buộc và chuỗi phép dựng
-Trung điểm
+cau 1:
+Một lớp có $25$ học sinh, trong đó có $15$ nam và $10$ nữ. Giáo viên chọn ngẫu nhiên $4$ học sinh để tham gia đội văn nghệ. Tính xác suất để số học sinh nam và số học sinh nữ được chọn bằng nhau (làm tròn kết quả đến hàng phần trăm).
+Cho hàm số y=x3-3x+2. Viết phương trình tiếp tuyến của đồ thị tại điểm có hoành độ bằng 2
+1) hiện tại thì em chỉ có lấy kết uqra từ LLM về nên dự định sắp tới em sẽ dùng numpy và Sympy để code các hàm để kiểm tra đối chiếu lại kết quả hoặc là lấy kết quả  đó cho llm sinh lời giải
+2) em cần phải test nhiều về các bài toán liên quan về xác xuất và lượng giác vì đay là các baì toán mà LLM hay sai
+3) về định dangj thì đôi lúc có những bài trả về các định dnagj mới nên em cân text đẻ định  dạng phù hợp
 
-Trong mặt phẳng 2D, cho A(0,0), B(8,0). Dựng M là trung điểm AB.
-Kiểm tra: M phải là (4,0), và MA = MB.
+cau2: Chỉ vẽ một tam giác vuông ABC, trong đó góc A bằng 90. Hiện tên ba đỉnh và đánh dấu góc vuông tại A.\
+1)nó có thể hiểu dược ngữ cảnh để tạo thêm( trung diem) , xóa
+2)và ngoài ra để xóa nhanh thì em còn tích hiwpsj thêm xóa qua giao diện
+3) ngoaif ra co the ve duong thanh thongq qua giao dien cho nhanh
 
-Chuỗi trung điểm rồi hình chiếu
+cau3:
+liên quan về hình học 3d
+1) nó vừa vẽ được hình học và vừa trả lwoif câu hỏi và khi bài toán như này em cho nó trả lời sau cùng đẻ tránh việc hình học thì cũng ko có câu trả lời nào được sinh ra
+2) vấn đề là khi nó bảo nêu công thức tính về AC' thì nó tạo ra được task đẻ vẽ AC nhưng theo nguwoif mình muốn nhìn rõ hình thì mình phải vẽ thên cạnh AB' để dễ nhìn( việc này là là do mình quyết muốn  thêm thôi còn LLM khó mà suy đoán được cái này) nên em cũng tích hơp thêm như ở 2D là việc nối đường đẻ gaiir quyết viecvej này
+3) ngoài ra còn có cái tô màu hình phẳng để dẽ nhìn hình hơn
 
-Cho A(0,0), B(8,0), C(2,6). Dựng M là trung điểm AB, N là trung điểm BC, P là trung điểm MN. Sau đó dựng H là hình chiếu vuông góc của P lên AC.
-Kiểm tra: M=(4,0), N=(5,3), P=(4.5,1.5), H=(0.9,2.7); PH vuông góc AC.
+cau 4:
+ngoài ra em cần test thêm nhiều dạng toán khác nhau nữ vì đôi lúc có thể lỗi và hiện tại nếu như có xảy ra lỗi thfi em vẫn cho nó trả về lỗi trực tiếp ngoài giao diện đẻ em xử lý đã ( và đa số nếu có lõi thfi đều là constrain không thảo mãn)
+và hiện tại em đnag dùng Scipy và LLM đẻ xác định tạo độ và heinej tại em đã có tìm hiểu thấy có 2 thư vienj PlaneGCS, py_slvs
+và có 1 nhược điểm hiện tại thì vì em lòng  hội thoại và accs hình vẽ vào 1 canvas nên nếu khi làm bài khác đẻ vẽ hình thfi cần xóa đi các đối tượng hiện có trên canvas rồi mới vẽ hình
+và hiện tại lịch sử chat chỉ là lưu cứng trên code chưa có db
 
-Giao điểm hai đường
-
-Cho A(0,0), B(4,4), C(0,4), D(4,0). Dựng I là giao điểm của AB và CD, rồi dựng M là trung điểm IC.
-Kiểm tra: I=(2,2), M=(1,3); I phải thuộc cả hai đường.
-
-Hình chữ nhật với nhiều ràng buộc
-
-Dựng hình chữ nhật ABCD với A(0,0), B(6,0), C(6,4), D(0,4). Kiểm tra AB song song CD, BC song song AD, AB vuông góc BC, và hai đường chéo AC, BD cắt nhau tại trung điểm của mỗi đường.
-Kiểm tra: Nếu một ràng buộc không đúng thì không nên báo dựng thành công.
-
-Phân giác góc
-
-Cho A(4,0), B(0,0), C(0,3). Dựng tia phân giác trong của góc ABC, lấy điểm E trên tia đó sao cho BE=2.
-Kiểm tra: ∠ABE = ∠EBC; E nằm trong góc ABC và BE đúng độ dài 2.
-
-Tiếp tuyến đường tròn
-
-Cho đường tròn tâm O(0,0), bán kính 3 và điểm D(5,0). Dựng tiếp điểm T phía trên đường tròn sao cho DT là tiếp tuyến.
-Kiểm tra: T=(1.8,2.4); OT=3 và OT vuông góc DT.
-
-3D — kiểm tra mặt phẳng và quan hệ không gian
-Hình chiếu lên mặt phẳng
-
-Trong không gian Oxyz, cho A(0,0,0), B(4,0,0), C(0,4,0), D(1,1,6). Dựng H là hình chiếu vuông góc của D lên mặt phẳng ABC.
-Kiểm tra: H=(1,1,0), H thuộc mặt phẳng ABC và DH vuông góc với mặt phẳng đó.
-
-Giao điểm hai đường trong không gian
-
-Cho A(0,0,0), B(2,2,2), C(0,2,2), D(2,0,0). Dựng I là giao điểm của AB và CD.
-Kiểm tra: I=(1,1,1), và I thuộc cả AB lẫn CD.
-
-Tiếp tuyến trong mặt phẳng 3D
-
-Trong Oxyz, đường tròn tâm O(0,0,0), bán kính 3 nằm trên mặt phẳng z=0. Cho D(5,0,0), dựng tiếp điểm phía trên và tiếp tuyến DT.
-Kiểm tra: T=(1.8,2.4,0); OT=3 và OT vuông góc DT; kết quả vẫn nằm trên z=0.
-
-Ca khó — phụ thuộc, cập nhật, dữ kiện không hợp lệ
-Cập nhật điểm nguồn và tính lại dây chuyền
-
-Cho A(0,0), B(8,0), C(2,6). Dựng M là trung điểm AB, rồi H là hình chiếu vuông góc của M lên BC. Bây giờ di chuyển B đến (10,0), giữ nguyên các quan hệ dựng hình.
-Kiểm tra: M và H phải được tính lại; H vẫn nằm trên BC và MH vuông góc BC.
-
-Dữ kiện suy biến
-
-Cho A(1,1), B(1,1), P(3,4). Hãy dựng hình chiếu vuông góc của P lên đường thẳng AB.
-Kỳ vọng: Báo không thể dựng vì A và B trùng nhau; không tự đoán đường thẳng hoặc tạo kết quả giả.
-
-Mặt phẳng không xác định duy nhất
-
-Trong Oxyz, cho P(1,2,5), A(0,0,0), B(1,0,0), C(2,0,0). Hãy dựng hình chiếu của P lên mặt phẳng ABC.
-Kỳ vọng: Báo dữ kiện không hợp lệ vì A, B, C thẳng hàng; không dựng hình chiếu lên một mặt phẳng tùy ý.
-
-Hai đường chéo nhau, không có giao điểm
-
-Trong Oxyz, cho A(0,0,0), B(1,0,0), C(0,1,1), D(0,1,2). Hãy dựng giao điểm của AB và CD.
-Kỳ vọng: Nhận ra hai đường không cắt nhau trong không gian và báo lỗi rõ ràng.
-
-Ràng buộc mâu thuẫn
-
-Cho hai đường thẳng AB và CD đều có độ dài khác 0. Hãy dựng sao cho AB vừa song song vừa vuông góc với CD.
-Kỳ vọng: Phát hiện mâu thuẫn, hỏi lại hoặc từ chối; không cập nhật một hình chỉ thỏa một trong hai ràng buộc.
 
 
 Một Kim tự tháp ở Ai Cập có dạng khối chóp .S ABCD , có đáy là hình vuông với cạnh
