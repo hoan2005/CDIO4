@@ -4,18 +4,20 @@ Cho hàm số y=x3-3x+2. Viết phương trình tiếp tuyến của đồ thị
 1) hiện tại thì em chỉ có lấy kết uqra từ LLM về nên dự định sắp tới em sẽ dùng numpy và Sympy để code các hàm để kiểm tra đối chiếu lại kết quả hoặc là lấy kết quả  đó cho llm sinh lời giải
 2) em cần phải test nhiều về các bài toán liên quan về xác xuất và lượng giác vì đay là các baì toán mà LLM hay sai
 3) về định dangj thì đôi lúc có những bài trả về các định dnagj mới nên em cân text đẻ định  dạng phù hợp
-
+Cho hàm số y=x3-3x+2. Viết phương trình tiếp tuyến của đồ thị tại điểm có hoành độ bằng 2.
 cau2: Chỉ vẽ một tam giác vuông ABC, trong đó góc A bằng 90. Hiện tên ba đỉnh và đánh dấu góc vuông tại A.\
 1)nó có thể hiểu dược ngữ cảnh để tạo thêm( trung diem) , xóa
 2)và ngoài ra để xóa nhanh thì em còn tích hiwpsj thêm xóa qua giao diện
 3) ngoaif ra co the ve duong thanh thongq qua giao dien cho nhanh
+Vẽ tam giác ABC có góc A tù. Dựng đường cao từ C xuống đường thẳng AB, kể cả trường hợp chân đường cao nằm ngoài đoạn AB.
 
 cau3:
-liên quan về hình học 3d
+Vẽ hình lập phương ABCD.A'B'C'D' cạnh tùy ý. Vẽ đường chéo khối AC' và nêu công thức tính độ dài đường chéo khối theo cạnh a.
 1) nó vừa vẽ được hình học và vừa trả lwoif câu hỏi và khi bài toán như này em cho nó trả lời sau cùng đẻ tránh việc hình học thì cũng ko có câu trả lời nào được sinh ra
 2) vấn đề là khi nó bảo nêu công thức tính về AC' thì nó tạo ra được task đẻ vẽ AC nhưng theo nguwoif mình muốn nhìn rõ hình thì mình phải vẽ thên cạnh AB' để dễ nhìn( việc này là là do mình quyết muốn  thêm thôi còn LLM khó mà suy đoán được cái này) nên em cũng tích hơp thêm như ở 2D là việc nối đường đẻ gaiir quyết viecvej này
 3) ngoài ra còn có cái tô màu hình phẳng để dẽ nhìn hình hơn
 
+Vẽ một mặt phẳng (P), điểm M nằm ngoài (P), và hình chiếu vuông góc H của M lên (P). Vẽ đoạn MH và nêu tính chất của đoạn này.
 cau 4:
 ngoài ra em cần test thêm nhiều dạng toán khác nhau nữ vì đôi lúc có thể lỗi và hiện tại nếu như có xảy ra lỗi thfi em vẫn cho nó trả về lỗi trực tiếp ngoài giao diện đẻ em xử lý đã ( và đa số nếu có lõi thfi đều là constrain không thảo mãn)
 và hiện tại em đnag dùng Scipy và LLM đẻ xác định tạo độ và heinej tại em đã có tìm hiểu thấy có 2 thư vienj PlaneGCS, py_slvs
