@@ -45,6 +45,7 @@ class GeometryValidationController:
         *,
         error_summary: str | None = None,
         state_context: dict[str, Any] | None = None,
+        allow_llm: bool = True,
     ) -> dict[str, Any]:
         """Kiểm tra candidate và sửa tọa độ, không cập nhật StateManager."""
 
@@ -86,11 +87,12 @@ class GeometryValidationController:
                 "validation_level": "not_required",
             }
 
-        for attempt in range(self.max_repair_attempts + 1):
+        max_attempts = self.max_repair_attempts if allow_llm else 0
+        for attempt in range(max_attempts + 1):
             # Luôn kiểm tra toàn bộ constraints trên candidate hiện tại.
             try:
                 results = self.dispatcher.validate_many(
-                    constraints_working, candidate
+                    constraints_working, candidate, allow_llm=allow_llm,
                 )
             except Exception as exc:
                 return self._failure(
@@ -186,12 +188,13 @@ class GeometryValidationController:
                     validation_level="incomplete",
                 )
 
-            if attempt >= self.max_repair_attempts:
+            if attempt >= max_attempts:
                 return self._failure(
                     original,
                     results,
                     controls,
-                    "Đã đạt giới hạn sửa nhưng vẫn còn constraint thất bại.",
+                    ("Đã đạt giới hạn sửa nhưng vẫn còn constraint thất bại."
+                     if allow_llm else self._summarize_failures(failed)),
                     constraints=constraints_working,
                     attempts=attempt,
                     repair_history=repair_history,
@@ -205,11 +208,8 @@ class GeometryValidationController:
                     constraints=deepcopy(constraints_working),
                     coordinate_control=deepcopy(controls),
                     attempt=attempt + 1,
-                    max_attempts=self.max_repair_attempts,
-                    error_summary=(
-                            "Kiểm tra tổng hợp tất cả constraints trong một request.\n"
-    + self._summarize_failures(failed)
-                    ),
+                    max_attempts=max_attempts,
+                    error_summary="\n".join(filter(None, (error_summary, self._summarize_failures(failed)))),
                     state_context=deepcopy(state_context),
                 )
             except Exception as exc:
@@ -347,7 +347,7 @@ class GeometryValidationController:
             controls,
             "Validation kết thúc mà chưa đạt trạng thái hợp lệ.",
             constraints=constraints_working,
-            attempts=self.max_repair_attempts,
+            attempts=max_attempts,
             repair_history=repair_history,
         )
 

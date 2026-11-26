@@ -1,0 +1,152 @@
+SO SÁNH API GROQ VÀ GOOGLE GEMINI
+Ngày đo 26/11/2026 (UTC+7)
+
+1. Cấu hình được dùng
+
+Tên viết tắt trong báo cáo
+- GPT = Groq / openai/gpt-oss-120b (GROQ_MODEL_GPT).
+- Qwen = Groq / qwen/qwen3.8-27b (GROQ_MODEL_QWEN).
+- Gemini = Google Gemini / gemini-3.5-flash-lite trong lần chạy này. Có thể đặt
+  GEMINI_MODEL. GEMINI_ANSWER_MODEL cho phép chọn riêng model Gemini dự phòng
+  ở hai nhánh tạo lời giải.
+- Whisper = Groq / whisper-large-v3, dùng cùng GROQ_API_KEY và GROQ_BASE_URL.
+  Đây là model chép âm thanh trên cùng API Groq. Qwen nhận văn bản và ảnh,
+  GPT nhận văn bản. Ghi âm cần Whisper để có dự phòng khác nhà cung cấp.
+
+Công đoạn                            | Model chính | Model phụ | Lý do
+-------------------------------------|-------------|-----------|----------------------
+Lập kế hoạch JSON                    | Gemini      | GPT       | Gemini dùng được prompt đầy đủ, chọn đúng cấu trúc ở P1–P4 sau khi bổ sung hướng dẫn. GPT dùng prompt gọn để chạy trong hạn mức, đạt P1/P3/P4 và còn yếu ở P2.
+Giải toán thuần                      | GPT         | Gemini   | Cả hai đúng M1/M2. GPT trả nhanh hơn ở hai mẫu. Gemini nhận tải khi Groq chạm quota.
+Giải thích sau khi vẽ                | GPT         | Gemini   | Cả hai suy ra đúng y = 2x − 1 ở E1. GPT có thời gian xử lý thấp hơn trong lần đo thành công.
+Kiểm tra ràng buộc thiếu Python      | GPT         | Gemini   | Cả hai phân loại đúng C1/C2. GPT nhanh trong các lần thành công. Python vẫn xử lý các loại ràng buộc đã có bộ kiểm tra.
+Đề xuất sửa tọa độ                  | GPT         | Gemini   | Cả hai chỉ dời M về (2,0) ở R1 và giữ nguyên A, B. Python kiểm lại từng phương án.
+Đọc đề hoặc hình từ ảnh              | Qwen        | Gemini   | Cả hai giữ đúng số liệu và dấu ở I1. Qwen hoàn thành nhanh hơn trong mẫu này.
+Chép lời từ bản ghi                 | Gemini      | Whisper  | Cả hai giữ được tên điểm, số đo và câu hỏi. Gemini có trường clarification để yêu cầu ghi lại đoạn không rõ. Whisper nhanh hơn và dự phòng khác API.
+
+Ảnh và ghi âm gửi cùng lượt được trích riêng để mỗi tệp có cặp model nhận đúng
+định dạng. Văn bản người dùng và kết quả trích từ hai nguồn đi vào cùng một
+kế hoạch. Backend dùng bộ dựng hình và bộ giải hiện có để kiểm tra trước khi vẽ.
+
+2. Tiêu chí và cách đo
+
+- Kết nối và khả năng nhận dữ liệu. GET danh sách model trả HTTP 200 ở cả hai
+  API. Bốn ID trong mục 1 có mặt. Kiểm tra riêng văn bản, ảnh và tiếng Việt.
+- Chất lượng. So sánh đáp án toán với kết quả tính độc lập. Đối với kế hoạch,
+  đọc JSON, đối chiếu operation, input, số chiều, phép dựng, thứ tự điểm phụ
+  thuộc và khả năng đưa vào backend. Với ảnh/âm thanh, đối chiếu dấu, hệ số,
+  số đo, đơn vị, tên điểm và câu hỏi. Chấp nhận khác biệt dấu câu và cách
+  viết 6 cm hoặc sáu xăng-ti-mét.
+- Độ trễ. Dùng time.perf_counter từ trước một lần gọi đến khi SDK/HTTP nhận và
+  đọc phản hồi. Bao gồm mạng và sinh kết quả. Không cộng thời gian chờ để thử
+  lại hoặc thời gian vẽ canvas vào số đo của một lần gọi. Dùng .env hiện tại
+  và đầu vào mẫu độc lập. Đo ở temperature 0,2 cho lập kế hoạch, 0,3 cho lời
+  giải, 0 cho kiểm tra và media, 0,4 cho sửa tọa độ. Mỗi dòng ghi thời gian
+  thành công quan sát được, kèm lỗi quota ở phần dưới.
+- Hạn mức và khả năng chuyển model. Thử nhiều lần gọi liên tiếp để ghi nhận
+  HTTP 429/413/503. Kiểm thử mô phỏng riêng nhằm đếm chính xác các lần gọi,
+  kiểm tra lỗi JSON và xác minh metadata giao diện.
+- Định dạng. Đối chiếu cấu trúc JSON và trường bắt buộc. Kiểm tra lời giải dùng
+  Markdown/LaTeX. GPT có thể trả delimiter LaTeX dạng \[...\] và \(...\).
+  Giao diện chuyển các dạng này về delimiter mà ReactMarkdown/KaTeX hiểu.
+
+3. Bộ đề và đáp án chuẩn
+
+P1  “Cho A(0,0), B(4,0). Hãy dựng M là trung điểm của AB.”
+    Hình phẳng, M = (2,0), dùng midpoint với depends_on = [A, B].
+P2  “Trong Oxyz, P(1,2,5), A(0,0,0), B(1,0,0), C(0,1,0). Tìm hình chiếu
+    vuông góc H của P lên (ABC).”
+    Hình không gian, H = (1,2,0), dùng plane_perpendicular_foot với
+    depends_on = [P, A, B, C]. Bộ dựng xác định lại tọa độ từ phép dựng.
+P3  “Vẽ đồ thị y=x² và tiếp tuyến tại x=1.”
+    draw_function với tangent_at = 1, tiếp tuyến y = 2x − 1.
+P4  “Tính xác suất khi rút hai viên bi. Em chưa có dữ liệu về số bi trong hộp.”
+    Hỏi lại về số lượng, màu và biến cố hoặc cách rút còn thiếu. Dùng clarify.
+M1  “Giải phương trình x^2-5x+6=0, trình bày từng bước.”
+    Hai nghiệm 2 và 3.
+M2  “Hộp có 3 bi đỏ và 2 bi xanh. Rút liên tiếp 2 bi không hoàn lại.
+    Tính xác suất cả hai bi đỏ.”
+    P = (3/5) × (2/4) = 3/10.
+E1  Giải thích tiếp tuyến của y=x² tại x=1 sau khi đã vẽ. Dữ liệu canvas
+    gồm expression=x^2 và guide với slope=2, intercept=-1, role=tangent.
+    Đúng đạo hàm 2x, tiếp điểm (1,1) và phương trình y = 2x − 1.
+C1  Hai đường AB và AC với A=(0,0), B=(4,0), C=(0,3).
+    Tích vô hướng 0, expected status=satisfied.
+C2  Cùng đề với C=(2,3).
+    Tích vô hướng 8, expected status=not_satisfied.
+R1  A=(0,0), B=(4,0) khóa, M=(1,1) được sửa. Ràng buộc M là trung điểm AB.
+    JSON thành công, coordinates chỉ có M=(2,0).
+I1  Ảnh PNG nền trắng, chữ in đen, hai dòng “1. Giai phuong trinh:” và
+    “3x^2 - 7x - 6 = 0”. Dựng ảnh bằng Ghostscript, font Helvetica cỡ 28.
+    Giữ đủ hệ số, mũ, dấu và vế phải. Kết quả trích dẫn bằng JSON.
+A1  WAV đơn kênh dựng bằng eSpeak NG với giọng vi. Nội dung đọc “Cho tam giác
+    A B C, cạnh A B bằng sáu xăng ti mét. Tính diện tích tam giác.”
+    Giữ ABC, AB, 6 cm và yêu cầu tính diện tích. WAV được gửi trực tiếp tới
+    API khi so sánh. Tuyến chat kiểm thử các MIME trình duyệt qua bài mock,
+    hỗ trợ WebM, Ogg và M4A.
+
+4. Số đo trực tiếp bằng API thật (giây/lần)
+
+Mẫu | Gemini         | Model Groq            | Đánh giá
+----|----------------|-----------------------|--------------------------------------------
+P1  | 4,19           | GPT 1,33              | Cả hai có phép dựng midpoint đúng.
+P2  | 5,47           | GPT 2,27              | Gemini dùng phép dựng đúng nhưng tọa độ ứng viên và notes sai. GPT lồng input sai schema. Backend dùng phép dựng để tính H và lần thử GPT sai schema bị từ chối.
+P3  | 1,88           | GPT 1,20              | Cả hai có tangent_at=1. Gemini dùng một task. GPT tạo thêm task đồ thị riêng.
+P4  | 6,50           | GPT 1,10              | Cả hai hỏi lại. GPT thành công sau một lượt 429 và chờ quota trong bộ đo.
+M1  | 6,85           | GPT 2,08              | Cả hai đúng hai nghiệm. GPT có 429 trước lần thành công. Qwen đạt ở lượt thăm dò 3,67 giây.
+M2  | 5,51           | GPT 2,58              | Cả hai đúng 3/10.
+E1  | 5,66           | GPT 1,91              | Cả hai đúng hệ số góc và phương trình. GPT từng trả 429.
+C1  | 3,51           | GPT 1,08 (lượt đo trước) | Cả hai đúng. GPT trả 429 ở lượt đo sau khi chạy liên tiếp các mẫu khác.
+C2  | 5,19           | GPT 1,16              | Cả hai đúng. GPT từng trả 429.
+R1  | 5,99           | GPT 0,76              | Cả hai chỉ đề xuất M=(2,0).
+I1  | 3,03 (lượt trước) | Qwen 0,94          | Cả hai chép đúng. Gemini có một lần 503. Qwen từng 429 khi đo ngay sau M1.
+A1  | 3,61           | Whisper 0,73          | Cả hai giữ nội dung toán. Whisper giữ thêm từ mở đầu “Cho”.
+
+Thử với prompt lập kế hoạch đầy đủ trước khi rút gọn. Groq trả 413 ở cả GPT
+và Qwen. Thông báo của Groq ghi khoảng 30–31 nghìn token cho yêu cầu, trong
+khi hạn mức quan sát tại thời điểm kiểm tra là 8.000 TPM cho GPT và 7.000
+input TPM cho Qwen. Qwen có thêm hạn mức 1.000 output TPM trên tài khoản đo.
+Với prompt giải toán đầy đủ, đã gặp 429 khi chạy liên tiếp GPT. Bản dùng trong
+hệ thống giữ prompt đầy đủ cho Gemini và dùng prompt gọn cho GPT ở bước lập
+kế hoạch và lời giải. Chi phí không được đo. Đây là bộ mẫu nhỏ, có dao động
+theo tải và quota. Kết quả đọc ảnh chỉ đại diện cho ảnh chữ in rõ và kết quả
+ghi âm chỉ đại diện cho bản thu tổng hợp.
+
+5. Retry và kiểm thử tích hợp
+
+- Tối đa ba lần tổng cộng với model chính, gồm lần gọi đầu tiên. Nếu vẫn
+  lỗi, thử tối đa hai lần với model phụ. Dừng khi nhận kết quả dùng được.
+  Các lỗi cố định như 400, 401, 403, 404, 413, 422 chuyển model sớm vì lặp
+  lại đúng request không giải quyết lỗi. Lỗi mạng, 429, 5xx, nội dung rỗng,
+  JSON sai và lỗi cấu trúc đã kiểm tra được phép thử lại.
+- SDK Gemini được cấu hình một lần gọi mỗi lần thử nhằm tránh retry ngầm.
+  Hai ngân sách ba và hai được dùng chung qua các vòng đề xuất sửa của
+  cùng một lần giải hình. Các câu hỏi kiểm tra ràng buộc có tọa độ đầu vào
+  mới là các tác vụ kiểm tra mới.
+- POST /chat giữ phản hồi JSON đồng bộ. Giao diện dùng POST /chat/stream.
+  Mỗi lần gọi phát tên nhà cung cấp, ID model, công đoạn và số lần thử.
+  Câu trả lời ghi những model đã trả dữ liệu hợp lệ theo từng công đoạn.
+- Backend unittest gồm 58 ca, 57 đạt và 1 bộ đánh giá ngôn ngữ opt-in bỏ qua
+  theo mặc định. Các ca mới kiểm tra 3+2, HTTP 429, lỗi cố định, ngân sách
+  sửa tọa độ, progress khi plan lỗi và tên model thành công trong kết quả.
+  Có kiểm tra tệp lỗi, ảnh, ghi âm và lượt chứa hai tệp.
+- Frontend qua tsc, vite build và bài kiểm thử chọn điểm Node.
+- Chrome headless chạy frontend và backend với API thật ở P1. Quan sát
+  trạng thái “Lập kế hoạch · Gemini · gemini-3.5-flash-lite”, rồi “Giải thích
+  hình vẽ · Groq · openai/gpt-oss-120b” trong lúc chờ. Câu trả lời có hai
+  nhãn model, đúng nội dung trung điểm và công thức đã render bằng KaTeX.
+- POST /chat/stream với API thật ở P2 và I1 đều kết thúc thành công. P2
+  dùng Gemini rồi GPT, canvas có điểm H=(1,2,0). I1 đi qua Qwen để đọc ảnh,
+  Gemini để lập kế hoạch và GPT để giải thích. Canvas được tạo trong lần
+  chạy này có hai giao điểm với Ox tại x=-2/3 và x=3, đúng phương trình ảnh.
+
+Chạy hồi quy từ thư mục gốc với môi trường Python đã cài requirements.txt
+  PYTHONPATH=backend python -m unittest discover -s backend/test
+  cd fontend
+  npm run build
+  node --test tests/*.test.mjs
+
+Nguồn về khả năng của API
+  https://console.groq.com/docs/models
+  https://console.groq.com/docs/model/qwen/qwen3.8-27b
+  https://console.groq.com/docs/structured-outputs
+  https://console.groq.com/docs/speech-to-text

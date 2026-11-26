@@ -13,6 +13,8 @@ except ImportError:
 
 
 class GeometrySolverPipeline:
+    MAX_ANCHOR_RETRIES = 3
+
     def __init__(self, coordinate_solver: CoordinateSolverController,
                  geometry_validation_controller: Any):
         if coordinate_solver is None or geometry_validation_controller is None:
@@ -25,29 +27,59 @@ class GeometrySolverPipeline:
                            coordinate_control: Mapping[str, Mapping[str, Any]] | None = None,
                            state_context: Mapping[str, Any] | None = None,
                            error_summary: str = "Kiểm tra toàn bộ ràng buộc hình học.") -> dict:
-        solved = self.coordinate_solver.solve(
-            coordinates=coordinates,
-            constraints=constraints,
-            coordinate_control=coordinate_control,
-        )
-        if not solved.get("success"):
-            return {"success": False, "stage": "coordinate_solver", "coordinates": deepcopy(dict(coordinates)),
-                    "solver_result": solved, "validation_result": None,
-                    "message": "; ".join(solved.get("errors") or ["Coordinate solver thất bại."])}
+        candidate = deepcopy(dict(coordinates))
+        controls = dict(coordinate_control or {})
+        validation_args = {
+            "constraints": list(constraints),
+            "coordinate_control": controls,
+            "state_context": dict(state_context or {}),
+        }
+        solve_attempts = []
+        validated = None
+        best_failure_count = float("inf")
+        for anchor_attempt in range(self.MAX_ANCHOR_RETRIES + 1):
+            solved = self.coordinate_solver.solve(
+                coordinates=coordinates,
+                constraints=constraints,
+                coordinate_control=coordinate_control,
+                anchor_attempt=anchor_attempt,
+            )
+            report = {key: value for key, value in solved.items() if key != "coordinates"}
+            solve_attempts.append(report)
+            if solved["status"] in {"normalization_error", "invalid_constraints"}:
+                return {"success": False, "stage": "coordinate_solver", "coordinates": candidate,
+                        "solver_result": solved, "validation_result": None,
+                        "message": "; ".join(solved["errors"])}
+            if solved["success"]:
+                validated = self.geometry_validation_controller.validate_and_repair(
+                    coordinates=solved["coordinates"], **validation_args, allow_llm=False,
+                )
+                report["validation_message"] = validated["message"]
+                failure_count = sum(
+                    item["status"] in {"failed", "uncertain"} for item in validated["results"]
+                )
+                if failure_count <= best_failure_count:
+                    candidate = solved["coordinates"]
+                    best_failure_count = failure_count
+                if validated["success"]:
+                    break
+            if not solved.get("can_retry_anchors"):
+                break
 
-        # Re-validate solver output; numerical convergence is not proof of correctness.
-        validated = self.geometry_validation_controller.validate_and_repair(
-            coordinates=solved["coordinates"],
-            constraints=list(constraints),
-            coordinate_control=dict(coordinate_control or {}),
-            error_summary=error_summary,
-            state_context=dict(state_context or {}),
-        )
-        if not validated.get("success"):
-            return {"success": False, "stage": "geometry_validation", "coordinates": solved["coordinates"],
-                    "solver_result": solved, "validation_result": validated,
-                    "message": validated.get("message", "Nghiệm chưa vượt qua kiểm định hình học.")}
-        return {"success": True, "stage": "validated", "coordinates": validated.get("coordinates") or solved["coordinates"],
-                "coordinate_control": validated.get("coordinate_control") or dict(coordinate_control or {}),
-                "solver_result": solved, "validation_result": validated,
-                "message": validated.get("message", "Đã giải và kiểm định các ràng buộc.")}
+        if validated is None or not validated["success"]:
+            errors = solved.get("errors") or []
+            validated = self.geometry_validation_controller.validate_and_repair(
+                coordinates=candidate, **validation_args,
+                error_summary="\n".join([error_summary, *errors]),
+            )
+
+        success = validated["success"]
+        return {
+            "success": success,
+            "stage": "validated" if success else "geometry_validation",
+            "coordinates": validated["coordinates"],
+            "coordinate_control": validated.get("coordinate_control") or controls,
+            "solver_result": {**solved, "solve_attempts": solve_attempts},
+            "validation_result": validated,
+            "message": validated["message"],
+        }

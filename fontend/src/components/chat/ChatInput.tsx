@@ -254,7 +254,7 @@ export default function ChatInput() {
       )}
       {(image || audio) && (
         <div style={{ marginBottom: 8, color: '#64748B', fontSize: 12 }}>
-          Tệp đính kèm sẽ được gửi tới Google Gemini khi bạn bấm Gửi.
+          Ảnh và bản ghi có thể được gửi tới Groq hoặc Google Gemini khi bạn bấm Gửi.
         </div>
       )}
 

@@ -1,6 +1,6 @@
 # Gia sư Toán AI
 
-Ứng dụng gia sư toán học có thể giải câu hỏi bằng mô hình Gemini và minh họa
+Ứng dụng gia sư toán học có thể giải câu hỏi bằng các model Groq và Gemini, đồng thời minh họa
 các đối tượng hình học trên canvas 2D/3D. Người dùng gửi câu hỏi trong giao diện
 web; backend lập kế hoạch, kiểm tra dữ kiện hình học, thực thi phép tính hoặc
 thao tác vẽ rồi trả kết quả về frontend.
@@ -29,7 +29,7 @@ thao tác vẽ rồi trả kết quả về frontend.
 ## Từ câu hỏi đến hình vẽ
 
 1. Frontend gửi câu hỏi và mã hội thoại đến FastAPI. [chatService.ts](fontend/src/services/chatService.ts)
-2. Gemini lập kế hoạch dựa trên đề bài và trạng thái hiện tại. Kế hoạch có thể yêu cầu trả lời, hỏi lại, dựng điểm, vẽ hoặc cập nhật đối tượng. [orchestrator.py](backend/orchestrator/orchestrator.py)
+2. Model lập kế hoạch dựa trên đề bài và trạng thái hiện tại. Kế hoạch có thể yêu cầu trả lời, hỏi lại, dựng điểm, vẽ hoặc cập nhật đối tượng. [orchestrator.py](backend/orchestrator/orchestrator.py)
 3. Với tác vụ hình học, backend tập hợp tọa độ và ràng buộc, tính điểm phụ thuộc, giải các ràng buộc tọa độ bằng SciPy khi cần rồi kiểm định kết quả. Khi kiểm định thất bại, backend trả thông tin lỗi trước bước vẽ. [xuly_chatbot.py](backend/controller/xuly_chatbot.py) · [geometry_solver_pipeline.py](backend/geometry_validator/geometry_solver_pipeline.py)
 4. Bộ thực thi cập nhật trạng thái của hội thoại. Frontend nhận lời đáp và danh sách đối tượng thêm, sửa, xóa. Canvas dùng dữ liệu đối tượng để đặt nhãn và dựng nét phụ theo tọa độ hiện tại. [execution_controller.py](backend/controller/execution_controller.py) · [measurementLabels.ts](fontend/src/utils/measurementLabels.ts) · [geometryGuides.ts](fontend/src/utils/geometryGuides.ts)
 
@@ -38,7 +38,7 @@ thao tác vẽ rồi trả kết quả về frontend.
 | Thành phần | Công nghệ |
 |---|---|
 | Backend | Python, FastAPI |
-| Lập kế hoạch và trả lời | Google Gemini (`google-genai`) |
+| Lập kế hoạch và trả lời | Google Gemini và Groq |
 | Toán học và hình học | SymPy, NumPy, SciPy |
 | Frontend | React, TypeScript, Vite |
 | Canvas | React-Konva (2D), Three.js / React Three Fiber (3D) |
@@ -52,7 +52,7 @@ cdio4
 │   ├── controller/          # Điều phối hội thoại và thực thi
 │   ├── geometry_validator/  # Kiểm tra ràng buộc và phép dựng hình
 │   ├── math_engine/         # Các phép toán và hàm vẽ
-│   ├── orchestrator/        # Lập kế hoạch tác vụ, tích hợp Gemini
+│   ├── orchestrator/        # Lập kế hoạch và điều phối Groq/Gemini
 │   ├── router/              # API FastAPI
 │   ├── state/               # Trạng thái hội thoại/canvas
 │   └── test/                # Kiểm thử backend
@@ -71,7 +71,7 @@ cdio4
 
 - Python (môi trường phát triển dùng Python 3.12).
 - Node.js và npm.
-- API key Google Gemini để sử dụng các tính năng AI.
+- API key Google Gemini và Groq để sử dụng đầy đủ các model chính và dự phòng.
 
 ## Cài đặt và chạy
 
@@ -95,12 +95,16 @@ python -m pip install -r requirements.txt
 ```
 
 Thiết lập các biến môi trường cần thiết. `PROJECT_NAME` và `PORT` được đọc khi
-backend khởi động; `GEMINI_API_KEY` được dùng để gọi Gemini.
+backend khởi động. Có thể đặt các biến dưới đây trong `.env` ở thư mục gốc.
 
 ```bash
 export PROJECT_NAME="Gia su Toan AI"
 export PORT=8000
 export GEMINI_API_KEY="your_gemini_api_key"
+export GROQ_API_KEY="your_groq_api_key"
+export GROQ_BASE_URL="https://api.groq.com/openai/v1"
+export GROQ_MODEL_GPT="openai/gpt-oss-120b"
+export GROQ_MODEL_QWEN="qwen/qwen3.8-27b"
 # Tùy chọn:
 export GEMINI_MODEL="gemini-3.5-flash-lite"
 ```
@@ -109,7 +113,8 @@ Không đưa API key vào mã nguồn hoặc commit API key lên Git.
 
 Trong PowerShell, dùng `$env:PROJECT_NAME = "Gia su Toan AI"`,
 `$env:PORT = "8000"` và `$env:GEMINI_API_KEY = "your_gemini_api_key"` trong
-terminal chạy backend. Có thể đặt `GEMINI_ANSWER_MODEL` để chọn riêng mô hình trả lời.
+terminal chạy backend. Có thể đặt `GEMINI_ANSWER_MODEL` để chọn model Gemini
+dự phòng riêng cho lời giải.
 
 Khởi chạy backend:
 
@@ -147,17 +152,14 @@ Chat hỗ trợ một ảnh JPG, PNG hoặc WebP tối đa 5 MiB và một bản
 tối đa 60 giây (2 MiB). Có thể gửi riêng từng loại, gửi cả hai, hoặc kèm văn
 bản. Nút ghi âm cần cấp quyền microphone trên localhost hoặc HTTPS.
 
-Ảnh và bản ghi được gửi tới Gemini để chép đề, mô tả hình và chuyển lời nói
-thành văn bản. Hệ thống dùng văn bản này để giải toán và vẽ. Phản hồi gồm chữ
-và cập nhật canvas. Backend lưu nội dung đã trích trong ngữ cảnh hội thoại
-thay cho tệp gốc.
+Trợ lý dùng Groq và Gemini để đọc ảnh, chuyển lời nói thành văn bản, lập
+kế hoạch và viết lời giải. Backend lưu nội dung đã trích trong ngữ cảnh hội
+thoại thay cho tệp gốc. Bảng chọn model chính, dự phòng, hạn mức quan sát được
+và bộ thử có trong [sosanhAPI.txt](sosanhAPI.txt).
 
-Để chi phí API bằng 0, dùng `GEMINI_API_KEY` từ project [Gemini Free Tier](https://aistudio.google.com/projects)
-chưa liên kết billing. Model mặc định `gemini-3.5-flash-lite` hỗ trợ cả ảnh
-và audio. Nếu chỉnh `GEMINI_MODEL` hoặc `GEMINI_ANSWER_MODEL`, chọn model
-có Free Tier, và giữ hỗ trợ ảnh/audio cho `GEMINI_MODEL`. Mỗi lượt có tệp dùng
-thêm một lần gọi để trích nội dung và chia sẻ hạn mức với chat. Khi hết hạn
-mức, Gemini từ chối yêu cầu cho đến khi có quota. Xem [bảng giá Gemini](https://aistudio.google.com/docs/pricing#gemini-3.5-flash-lite).
+Giao diện chat dùng `POST /chat/stream` để nhận từng dòng NDJSON. Sự kiện
+`progress` cung cấp model, công đoạn và lần thử. Sự kiện `result` có nội dung,
+delta canvas và danh sách model đã trả kết quả. `error` kết thúc lượt bị lỗi.
 
 Endpoint chính là `POST /chat`. Request gồm mã hội thoại và nội dung câu hỏi:
 
@@ -256,7 +258,7 @@ npm.cmd run build
 ```
 
 Bài kiểm tra frontend mô phỏng luồng chọn hai điểm; lệnh build kiểm tra
-TypeScript và đóng gói giao diện. Để kiểm tra toàn bộ luồng chat qua Gemini,
+TypeScript và đóng gói giao diện. Để kiểm tra toàn bộ luồng chat trực tiếp,
 cần backend có API key và frontend đang chạy.
 
 Từ thư mục gốc, kích hoạt môi trường Python rồi chạy:
@@ -267,7 +269,7 @@ PYTHONPATH=. python -m unittest discover -s test -p 'test_*.py'
 ```
 
 Mặc định các kiểm thử không gọi API LLM. Để chạy thêm bộ đánh giá paraphrase
-tiếng Việt qua Gemini (cần `GEMINI_API_KEY`), chạy từ thư mục `backend`:
+tiếng Việt qua các model đang cấu hình, chạy từ thư mục `backend`:
 
 ```bash
 RUN_GEOMETRY_LLM_EVAL=1 PYTHONPATH=. python -m unittest discover -s test -p 'test_geometry_language_eval.py'
@@ -276,7 +278,7 @@ RUN_GEOMETRY_LLM_EVAL=1 PYTHONPATH=. python -m unittest discover -s test -p 'tes
 ## Khắc phục sự cố
 
 - **Thiếu cấu hình backend:** kiểm tra đã đặt `PROJECT_NAME`, `PORT` và biến
-  `GEMINI_API_KEY` trong terminal chạy backend.
+  `GEMINI_API_KEY`, `GROQ_API_KEY` trong `.env` hoặc terminal chạy backend.
 - **Không gửi được câu hỏi:** xác nhận backend đang chạy tại cổng `8000`.
 - **Lỗi CORS khi chạy frontend:** backend hiện cho phép origin
   `http://localhost:5173`; truy cập frontend bằng đúng địa chỉ này.

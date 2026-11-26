@@ -713,7 +713,9 @@ class ConstraintDispatcher:
                 add(constraint[field])
         return names
 
-    def validate(self, constraint: dict[str, Any], coordinates: dict[str, Vector]) -> dict[str, Any]:
+    def validate(
+        self, constraint: dict[str, Any], coordinates: dict[str, Vector], *, allow_llm: bool = True,
+    ) -> dict[str, Any]:
         if not isinstance(constraint, dict):
             return {
                 "status": "failed", "method": "input",
@@ -735,7 +737,13 @@ class ConstraintDispatcher:
                 }
         if validator is None:
             # Fallback CHỈ khi không có Python validator cho loại constraint.
-            return self._validate_with_llm(constraint, coordinates)
+            if allow_llm:
+                return self._validate_with_llm(constraint, coordinates)
+            return {
+                "status": "unsupported", "method": "python",
+                "constraint_type": constraint_type, "constraint": constraint,
+                "reason": f"Chưa có Python validator cho '{constraint_type}'.",
+            }
 
         try:
             result = validator(constraint, coordinates, self.tolerance)
@@ -822,7 +830,7 @@ class ConstraintDispatcher:
         return result
 
     def validate_many(
-        self, constraints: list[dict[str, Any]], coordinates: dict[str, Vector]
+        self, constraints: list[dict[str, Any]], coordinates: dict[str, Vector], *, allow_llm: bool = True,
     ) -> list[dict[str, Any]]:
         if not isinstance(constraints, list):
             return [{
@@ -839,4 +847,4 @@ class ConstraintDispatcher:
                     "reason": f"Tọa độ mâu thuẫn giữa alias của điểm '{point_name}'.",
                 }]
             normalized[point_name] = values
-        return [self.validate(c, normalized) for c in constraints]
+        return [self.validate(c, normalized, allow_llm=allow_llm) for c in constraints]

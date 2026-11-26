@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import time
 import uuid
@@ -27,9 +26,10 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from fastapi import HTTPException, status
 
-from orchestrator.llm_client import LLMClient, LLMClientError
+from orchestrator.llm_client import (
+    FALLBACK_ATTEMPTS, PRIMARY_ATTEMPTS, LLMClient, LLMClientError, repair_attempt_budget,
+)
 from orchestrator.orchestrator import PlanValidationError, create_plan
-from orchestrator.prompt import ORCHESTRATOR_SYSTEM_PROMPT
 from state.state_manager import StateManager
 
 from .execution_controller import ExecutionController
@@ -53,6 +53,7 @@ from geometry_validator.sketch_measurements import check_sketch_measurements
 
 from .final_answer_prompt import (
         FINAL_ANSWER_SYSTEM_PROMPT,
+        GROQ_FINAL_ANSWER_SYSTEM_PROMPT,
         build_final_answer_user_prompt,
     )
 
@@ -92,7 +93,7 @@ DRAW_OPERATIONS = {
 # ======================================================
 
 DEFAULT_CONVERSATION_ID = "default_conversation"
-MAX_REPAIR_ATTEMPTS = 3
+MAX_REPAIR_ATTEMPTS = PRIMARY_ATTEMPTS + FALLBACK_ATTEMPTS
 
 # LLM sinh tọa độ gần đúng (vd 2*sqrt(3) ≈ 3.46) nên 1e-6 sẽ quá khắt khe.
 VALIDATION_TOLERANCE = 1e-3
@@ -458,7 +459,23 @@ def _llm_checker(context: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt=_LLM_CHECKER_SYSTEM_PROMPT,
         user_prompt=json.dumps(context, ensure_ascii=False, default=str),
         temperature=0.0,
+        stage="check",
+        validate=_validate_checker_output,
     )
+
+
+def _validate_checker_output(result: dict) -> dict:
+    if result.get("status") not in ("satisfied", "not_satisfied", "uncertain"):
+        raise ValueError("LLM chưa trả trạng thái kiểm tra ràng buộc hợp lệ.")
+    return result
+
+
+def _validate_repair_output(result: dict) -> dict:
+    success = result.get("success")
+    coordinates = result.get("coordinates")
+    if not isinstance(success, bool) or (success and (not isinstance(coordinates, dict) or not coordinates)):
+        raise ValueError("LLM chưa trả phương án sửa đúng định dạng.")
+    return result
 
 
 def _repair_provider(context: Dict[str, Any]) -> Dict[str, Any]:
@@ -469,14 +486,14 @@ def _repair_provider(context: Dict[str, Any]) -> Dict[str, Any]:
         + json.dumps(context, ensure_ascii=False, default=str)
     )
     return llm_client.generate_json(
-        system_prompt=ORCHESTRATOR_SYSTEM_PROMPT + _REPAIR_OUTPUT_INSTRUCTION,
+        system_prompt=_REPAIR_OUTPUT_INSTRUCTION,
         user_prompt=user_prompt,
-        temperature=0.4,  # cao hơn một chút để không lặp lại phương án đã thất bại
+        temperature=0.4,
+        stage="repair",
+        validate=_validate_repair_output,
     )
 
 
-# Model riêng cho lời giải (nên mạnh hơn model chia plan). Mặc định dùng chung model.
-ANSWER_MODEL = os.getenv("GEMINI_ANSWER_MODEL") or llm_client.model
 ANSWER_TEMPERATURE = 0.3
 
 construction_solver = ConstructionSolver()
@@ -491,13 +508,8 @@ geometry_controller = GeometryValidationController(
     allow_llm_supported=ALLOW_LLM_SUPPORTED,
 )
 
-# Solver số được gọi tự động sau ConstructionSolver và trước validation cuối.
-# Native PlaneGCS/py-slvs chưa bật mặc định; SciPy là backend ổn định để tránh
-# phụ thuộc API native chưa được xác nhận trong môi trường triển khai.
-coordinate_solver = CoordinateSolverController(
-    prefer_native=False,
-    add_gauge_anchors=True,
-)
+# Ưu tiên bộ giải native sau ConstructionSolver và trước validation cuối.
+coordinate_solver = CoordinateSolverController()
 geometry_solver_pipeline = GeometrySolverPipeline(
     coordinate_solver=coordinate_solver,
     geometry_validation_controller=geometry_controller,
@@ -1023,18 +1035,19 @@ def _validate_geometry_tasks(
         # Chỉ giữ các điểm có tọa độ; thiếu điểm sẽ được validator báo rõ.
         solver_coords = {n: list(all_coords[n]) for n in relevant_names if n in all_coords}
         solver_controls = {n: dict(all_controls.get(n, {})) for n in solver_coords}
-        result = geometry_solver_pipeline.solve_and_validate(
-            coordinates=solver_coords,
-            constraints=all_constraints,
-            coordinate_control=solver_controls,
-            state_context={
-                "summary": state.get("summary", ""),
-                "conversation_id": conversation_id,
-                "task_ids": [item["task"]["id"] for item in task_data],
-                "validation_scope": "all_tasks_in_request",
-            },
-            error_summary="Giải và kiểm tra tổng hợp tất cả constraints trong một request.",
-        )
+        with repair_attempt_budget():
+            result = geometry_solver_pipeline.solve_and_validate(
+                coordinates=solver_coords,
+                constraints=all_constraints,
+                coordinate_control=solver_controls,
+                state_context={
+                    "summary": state.get("summary", ""),
+                    "conversation_id": conversation_id,
+                    "task_ids": [item["task"]["id"] for item in task_data],
+                    "validation_scope": "all_tasks_in_request",
+                },
+                error_summary="Giải và kiểm tra tổng hợp tất cả constraints trong một request.",
+            )
         if result.get("success"):
             # Merge nghiệm đã giải vào pool chung; các điểm state không liên quan giữ nguyên.
             all_coords.update({k: list(v) for k, v in result.get("coordinates", {}).items()})
@@ -1256,25 +1269,11 @@ _FENCE_RE = re.compile(r"^```(?:markdown|md|latex|tex)?\s*\n(.*)\n```\s*$", re.D
 
 
 def _generate_text(system_prompt: str, user_prompt: str,
-                   temperature: float = ANSWER_TEMPERATURE) -> str:
-    """Gọi Gemini lấy văn bản Markdown+LaTeX (LLMClient hiện chỉ có generate_json)."""
-    client = getattr(llm_client, "_client", None)
-    if client is None:
-        raise LLMClientError("LLMClient chưa có client để sinh văn bản.")
-    try:
-        response = client.models.generate_content(
-            model=ANSWER_MODEL,
-            contents=user_prompt,
-            config={"system_instruction": system_prompt, "temperature": temperature},
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise LLMClientError(f"Gọi LLM thất bại: {exc}") from exc
-
-    text = getattr(response, "text", None)
-    if not text or not text.strip():
-        raise LLMClientError("LLM trả về nội dung rỗng.")
-
-    text = text.strip()
+                   temperature: float = ANSWER_TEMPERATURE, *, stage: str = "math") -> str:
+    text = llm_client.generate_text(
+        system_prompt, user_prompt, temperature, stage=stage,
+        groq_system_prompt=GROQ_FINAL_ANSWER_SYSTEM_PROMPT,
+    )
     fenced = _FENCE_RE.match(text)  # LLM đôi khi bọc cả câu trả lời trong ```markdown
     return fenced.group(1).strip() if fenced else text
 
@@ -1302,8 +1301,8 @@ def _answer_math_only(question: str, conversation_id: str, state: Dict[str, Any]
     try:
         answer = _generate_text(FINAL_ANSWER_SYSTEM_PROMPT, prompt)
     except LLMClientError as exc:
-        if getattr(exc.__cause__, "code", None) == 429:
-            raise HTTPException(429, "Gemini đã chạm hạn mức. Hãy thử lại sau.") from exc
+        if exc.rate_limited:
+            raise HTTPException(429, "Các model AI đang chạm hạn mức. Hãy thử lại sau.") from exc
         logger.exception("Lỗi LLM khi tạo lời giải")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
@@ -1362,7 +1361,7 @@ def _explain_after_drawing(
         notes=[n for n in plan.get("notes", []) if isinstance(n, str)],
     )
     try:
-        return _generate_text(FINAL_ANSWER_SYSTEM_PROMPT, prompt)
+        return _generate_text(FINAL_ANSWER_SYSTEM_PROMPT, prompt, stage="explain")
     except LLMClientError:
         logger.exception("Lỗi LLM khi giải thích sau khi vẽ")
         return (
@@ -1393,8 +1392,8 @@ def xuly_thongtin(current_question: str, conversation_id: str = DEFAULT_CONVERSA
         plan = create_plan(current_question, state, llm_client)
         print("plan-----------",plan)
     except LLMClientError as exc:
-        if getattr(exc.__cause__, "code", None) == 429:
-            raise HTTPException(429, "Gemini đã chạm hạn mức. Hãy thử lại sau.") from exc
+        if exc.rate_limited:
+            raise HTTPException(429, "Các model AI đang chạm hạn mức. Hãy thử lại sau.") from exc
         logger.exception("Lỗi gọi LLM khi tạo plan")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
     except PlanValidationError as exc:

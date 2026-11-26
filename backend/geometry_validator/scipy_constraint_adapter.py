@@ -87,12 +87,13 @@ class ScipyConstraintAdapter:
                         r.extend(pts[0] - (pts[1]+pts[2])/2.0)
                     elif t == "point_on_line":
                         v = pts[2]-pts[1]; vv = float(v @ v)
-                        if vv < self.tolerance**2: r.extend([1e3]*dim)
+                        on_segment = c.get("_source_type") == "point_on_segment"
+                        if vv < self.tolerance**2: r.extend([1e3] * (dim + int(on_segment)))
                         else:
                             t_param = float((pts[0]-pts[1]) @ v)/vv
                             proj = pts[1] + v * t_param
                             r.extend(pts[0]-proj)
-                            if c.get("_source_type") == "point_on_segment":
+                            if on_segment:
                                 r.append(min(0.0, t_param) + max(0.0, t_param-1.0))
                     elif t == "collinear":
                         u, v = pts[1]-pts[0], pts[2]-pts[0]

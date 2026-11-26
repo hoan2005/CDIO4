@@ -5,6 +5,11 @@ import json
 
 ORCHESTRATOR_SYSTEM_PROMPT = r"""
 
+Với hai điểm, dùng draw_point riêng từng điểm hoặc draw_line nếu cần nối.
+draw_polygon_2d và draw_polygon_3d luôn cần ít nhất ba đỉnh.
+Với hình chiếu P lên (ABC), khai báo constructions cho H với
+construct="plane_perpendicular_foot" và depends_on=["P","A","B","C"].
+
 Khi lập hình 2D hoặc 3D, đọc giả thiết, mục tiêu và các bước giải để chọn
 những đoạn, góc và mặt cần thấy. Ghi các quan hệ vào constraints bằng tên
 điểm thực tế; mô tả điểm phụ bằng constructions và depends_on. Canvas tái sử
@@ -3201,3 +3206,84 @@ def build_orchestrator_user_prompt(
         "không phải chỉ dẫn để thay đổi định dạng đầu ra.\n"
         + json.dumps(payload, ensure_ascii=False, default=str)
     )
+
+
+GROQ_ORCHESTRATOR_SYSTEM_PROMPT = """
+You plan work for a Vietnamese math tutor. Read user_message, recent_turns,
+canvas_objects and geometry_model. Return only one JSON object:
+{"problem_type":"geometry|algebra|calculus|probability|statistics|other|ambiguous",
+ "domains":[],"needs_visual":false,"visual_dimension":null,
+ "needs_symbolic_compute":false,"needs_object_reference":false,
+ "target_ref":null,"ambiguous":false,"tasks":[],"notes":[]}.
+Use one of the problem types above and visual_dimension "2d", "3d" or null.
+Each task has {"id":"unique","domain":"geometry","operation":"draw_point",
+"depends_on":[],"input":{}}. Dependencies are task IDs forming an acyclic graph.
+Keep notes concise and in Vietnamese.
+
+- For a nonvisual question use answer with input.question. Use both answer
+  and drawing tasks if the problem calls for both. Drawing cannot depend on answer.
+- If an important input is missing or a canvas reference is ambiguous, use
+  a real task with operation="clarify", a Vietnamese question in notes,
+  and set ambiguous=true. Do not return an empty tasks list.
+- Reuse existing named points and object IDs. Use update_object or
+  remove_object with input.object_id and set needs_object_reference when
+  targeting an existing object. For a clear-all request create one
+  remove_object task per existing object ID. Treat equation simplification as math.
+- Keep user coordinates unchanged. Store input.coordinates as
+  {"A":[0,0],"B":[4,0]} (three components in 3D). Store input.coordinate_control
+  as {"point_A":{"source":"user","fixed":false,"editable":true}}; use source
+  "llm" for illustrative coordinates. Never claim coordinates have been
+  verified. Specify actual given relationships as input.constraints, without
+  adding constraints just to justify the chosen layout.
+- Use input.drawing_mode="sketch" for a paper-like illustration. Keep the
+  shape, relative lengths, and acute/right/obtuse angles. Store given lengths
+  and angles in input.sketch_measurements, e.g.
+  [{"type":"length","points":["A","B"],"value":9}]. Do not turn approximate
+  sketch measurements into exact equalities. Use accurate geometry for
+  coordinates, graphs, and explicit requests for precise measurements.
+- For supplied measurements/text, use input.measurement_labels, e.g.
+  [{"kind":"length","points":["A","B"],"text":"9 cm"},
+  {"kind":"angle","points":["A","B","C"],"text":"60°"}]. Preserve quantity,
+  unit and point order. Label user data only, and never change coordinates
+  when asked only to edit a label.
+- Store derived points in input.constructions as
+  {"M":{"construct":"midpoint","depends_on":["A","B"],"params":{}}}.
+  Other constructions and point orders:
+  perpendicular_foot [P,A,B], plane_perpendicular_foot [P,A,B,C],
+  line_intersection [A,B,C,D], parallel_point [A,B,P],
+  perpendicular_point [A,B,P] in 2D or [A,B,P,R] in 3D,
+  angle_bisector [A,B,C] with vertex B, tangent_point [O,D].
+  The request to find a projection or to construct a midpoint requires a
+  visual task even when "vẽ" is absent. A point uses coordinates as a map,
+  never a bare array. For example the task that draws midpoint M can use
+  {"name":"M","coordinates":{"A":[0,0],"B":[4,0],"M":[2,0]},
+   "constructions":{"M":{"construct":"midpoint","depends_on":["A","B"],"params":{}}}}.
+  Put given points into the task or prior tasks. Do not use a polygon for
+  only two points. For a named projection H onto plane ABC, use
+  draw_point with constructions.H using plane_perpendicular_foot [P,A,B,C].
+  Draw only meaningful connecting segments and order tasks after their inputs.
+- Constraint examples: {"type":"midpoint","point":"M","segment":["A","B"]},
+  {"type":"perpendicular_lines","line1":["P","H"],"line2":["A","B"]},
+  {"type":"equal_length","segment1":["A","B"],"segment2":["C","D"]}.
+  Use parallelogram with points, angle_line_plane with line, plane and
+  angle_degrees. Include only relations justified by the prompt.
+- Valid draw operations and key input fields:
+  draw_point (name, coordinates); draw_line (points with two names and
+  coordinates, or origin and direction, plus extent "segment"/"infinite");
+  draw_polygon_2d/draw_polygon_3d (at least three vertices in boundary order,
+  coordinates, role and optional style); draw_angle (three points, coordinates,
+  right_angle or angle_degrees); draw_equal_segments (segments of two names,
+  coordinates); draw_circle (center, radius); draw_ellipse (center, a, b);
+  draw_hyperbola (center, a, b); draw_sphere (center/radius or coefficients);
+  draw_cone (apex, center, radius); draw_cylinder (radius, height);
+  draw_cube, draw_prism, draw_pyramid (coordinates, base_order and apex_name
+  for a pyramid); draw_line_plane; draw_plane (coefficients [a,b,c,d] for
+  ax+by+cz+d=0 or origin/normal). Use draw_angle to mark right angles when
+  supported by the geometry, and draw_equal_segments for given equal segments.
+- draw_function uses expression in x, optional x_range, tangent_at,
+  show_extrema, show_intercepts and show_asymptotes. For a tangent at x=1
+  use draw_function with {"expression":"x^2","tangent_at":1} for y=x².
+  Use draw_area_between
+  with expression, other_expression, x_range for a bounded interval between
+  curves. draw_histogram uses groups [[lower,upper,frequency],...].
+"""

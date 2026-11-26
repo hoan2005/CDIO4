@@ -26,19 +26,23 @@ class ChatMediaTests(unittest.TestCase):
             with self.subTest(mimes=mimes), patch.object(
                 xuly_chatbot.llm_client, "generate_json", return_value={"content": "Tính x."}
             ) as extract, patch.object(
-                xuly_chatbot, "xuly_thongtin", return_value={"message": "Lời giải", "canvas": {}}
+                xuly_chatbot, "xuly_thongtin", return_value={"message": {"content": "Lời giải"}, "canvas": {}}
             ) as solve:
                 response = self.client.post("/chat", json={**self.turn, **attachments})
                 self.assertEqual(response.status_code, 200)
-                parts = extract.call_args.kwargs["user_prompt"]
-                self.assertEqual([part.inline_data.mime_type for part in parts[1:]], mimes)
+                actual = [
+                    (call.kwargs["stage"], call.kwargs["user_prompt"][1].inline_data.mime_type)
+                    for call in extract.call_args_list
+                ]
+                expected = [(mime.split("/")[0], mime) for mime in mimes]
+                self.assertEqual(actual, expected)
                 question, conversation = solve.call_args.args
-                self.assertIn("Tính x.", question)
+                self.assertEqual(question.count("Tính x."), len(mimes))
                 self.assertEqual(conversation, "media-test")
                 if "message" in attachments:
                     self.assertTrue(question.startswith("Giải giúp mình"))
 
-    def test_invalid_media_does_not_call_gemini(self):
+    def test_invalid_media_does_not_call_llm(self):
         with patch.object(xuly_chatbot.llm_client, "generate_json") as extract:
             for body in [self.turn, {**self.turn, "image": {**self.image, "data": "???"}}]:
                 self.assertEqual(self.client.post("/chat", json=body).status_code, 422)

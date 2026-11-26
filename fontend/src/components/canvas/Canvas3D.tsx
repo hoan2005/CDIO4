@@ -45,9 +45,10 @@ type AnyObject = Record<string, any>
 const SELECTED = '#9CA3AF'
 const DEFAULT = '#334155'
 
-function point3(value: any, fallback: P3 = [0, 0, 0]): P3 {
+function point3(value: unknown, fallback: P3 = [0, 0, 0]): P3 {
   if (!Array.isArray(value) || value.length < 3) return fallback
-  return [Number(value[0]) || 0, Number(value[2]) || 0, Number(value[1]) || 0]
+  // Camera, axes, and grid already use the same Z-up coordinates as the geometry.
+  return [Number(value[0]) || 0, Number(value[1]) || 0, Number(value[2]) || 0]
 }
 function colorOf(obj: AnyObject, selected: boolean, fallback = DEFAULT) {
   if (selected) return SELECTED

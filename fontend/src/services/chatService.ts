@@ -3,8 +3,14 @@ import type {
   ChatAttachments,
   ChatRequest,
   ChatResponse,
+  LLMProgress,
 } from '@/types'
 
+
+type ChatEvent =
+  | { type: 'progress'; data: LLMProgress }
+  | { type: 'result'; data: ChatResponse }
+  | { type: 'error'; data: { status: number; detail: string } }
 
 const API_BASE_URL = 'http://localhost:8000'
 
@@ -37,45 +43,51 @@ export const chatService = {
   async send(
     request: ChatRequest,
     attachments?: ChatAttachments,
+    onProgress?: (progress: LLMProgress) => void,
   ): Promise<ChatResponse> {
     const [image, audio] = await Promise.all([
       encodeMedia(attachments?.image),
       encodeMedia(attachments?.audio),
     ])
+    const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...request, image, audio }),
+    })
 
-    const response = await fetch(
-      `${API_BASE_URL}/chat`,
-      {
-        method: 'POST',
-
-        headers: {
-          'Content-Type': 'application/json',
-        },
-
-        body: JSON.stringify({ ...request, image, audio }),
-      }
-    )
-
-
-    if (!response.ok) {
-
+    if (!response.ok || !response.body) {
       const payload = await response.json().catch(() => null)
-      if (response.status === 429) {
-        throw new Error('Gemini đã chạm hạn mức. Hãy thử lại sau.')
-      }
-      if (attachments && typeof payload?.detail === 'string' &&
-          (response.status === 422 || response.status === 502)) {
-        throw new Error(payload.detail)
-      }
-      throw new Error(`Không thể xử lý câu hỏi (HTTP ${response.status}).`)
+      throw new Error(
+        payload?.errors?.[0]?.message ?? payload?.detail ??
+        `Không thể xử lý câu hỏi (HTTP ${response.status}).`,
+      )
     }
 
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+    let pending = ''
+    let result: ChatResponse | undefined
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        pending += value
+        const lines = pending.split('\n')
+        pending = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          const event = JSON.parse(line) as ChatEvent
+          if (event.type === 'progress') onProgress?.(event.data)
+          if (event.type === 'result') result = event.data
+          if (event.type === 'error') throw new Error(event.data.detail)
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined)
+      reader.releaseLock()
+    }
 
-    const data =
-      await response.json()
-
-
-    return data as ChatResponse
+    if (!result) throw new Error('Kết nối kết thúc trước khi nhận được câu trả lời.')
+    return result
   },
 
   async connectPoints(

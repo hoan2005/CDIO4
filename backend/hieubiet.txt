@@ -59,3 +59,4 @@ __init__.py	Chỉ docstring, không export gì.
 PlaneGCS và py_slvs làm việc trực tiếp với các thực thể hình học (điểm, đoạn thẳng, cung tròn, mặt phẳng...) và ràng buộc hình học (song song, vuông góc, tiếp tuyến, bằng nhau, cố định khoảng cách/góc...).
 
 Với SciPy (ví dụ scipy.optimize.least_squares hoặc root), bạn phải tự biến mọi ràng buộc thành hàm phương trình/sai số toán học và tự quản lý biến tọa độ. Khi số lượng hình và ràng buộc tăng lên, việc ghép biến và đạo hàm/jacobian dễ rối và dễ sai.
+ca

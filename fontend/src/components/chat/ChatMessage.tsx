@@ -29,6 +29,14 @@ function stripBackticksAroundMath(content: string): string {
   return result
 }
 
+function normalizeMathDelimiters(content: string): string {
+  return content.split(/(```[\s\S]*?```|``[^`\n]*``|`[^`\n]*`)/g)
+    .map((part, index) => index % 2 === 1 ? part : part
+      .replace(/\\\[([\s\S]+?)\\\]/g, (_match, body: string) => `\n\n$$\n${body.trim()}\n$$\n\n`)
+      .replace(/\\\(([^\n]+?)\\\)/g, (_match, body: string) => `$${body.trim()}$`))
+    .join('')
+}
+
 function repairUnwrappedAlignedMath(content: string): string {
   return content.replace(
     /(?:\\begin\{aligned\}\s*)?[A-Za-z][A-Za-z0-9_{}^]*\s*&=[\s\S]*?\\end\{aligned\}(?:\s*\$\$)?/g,
@@ -101,6 +109,16 @@ function formatMathSteps(content: string): string {
   result = result.replace(/\s*⇔\s*/g, '\n\n⇔ ')
 
   return result
+}
+
+const modelStageLabels = {
+  image: 'Đọc ảnh',
+  audio: 'Chép ghi âm',
+  plan: 'Lập kế hoạch',
+  check: 'Kiểm tra ràng buộc',
+  repair: 'Sửa tọa độ',
+  math: 'Giải toán',
+  explain: 'Giải thích hình vẽ',
 }
 
 interface ChatMessageProps {
@@ -207,7 +225,15 @@ export default function ChatMessage({
           }}
         >
           {message.isLoading ? (
-            <LoadingDots />
+            <div role="status">
+              {message.llm_progress ? (
+                <div>
+                  {modelStageLabels[message.llm_progress.stage]} · {message.llm_progress.provider} ·{' '}
+                  {message.llm_progress.model} · Lần {message.llm_progress.attempt}/{message.llm_progress.limit}
+                </div>
+              ) : <div>Đang tiếp nhận câu hỏi</div>}
+              <LoadingDots />
+            </div>
           ) : (
             <div className="chat-markdown">
               {message.attachments?.image && <AttachmentPreview blob={message.attachments.image} kind="image" />}
@@ -218,10 +244,19 @@ export default function ChatMessage({
               >
                 {formatMathSteps(
                   repairUnwrappedAlignedMath(
-                    stripBackticksAroundMath(message.content),
+                    normalizeMathDelimiters(stripBackticksAroundMath(message.content)),
                   ),
                 )}
               </ReactMarkdown>
+              {message.llm_models && message.llm_models.length > 0 && (
+                <ul style={{ color: '#64748B', fontSize: '12px', listStyle: 'none', padding: 0 }}>
+                  {message.llm_models.map(({ stage, provider, model }) => (
+                    <li key={`${stage}/${provider}/${model}`}>
+                      {modelStageLabels[stage]} · {provider} · {model}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>

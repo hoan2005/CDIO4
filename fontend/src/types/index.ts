@@ -299,6 +299,17 @@ export interface ChatAttachments {
   audio?: Blob
 }
 
+export interface LLMModel {
+  stage: 'image' | 'audio' | 'plan' | 'check' | 'repair' | 'math' | 'explain'
+  provider: string
+  model: string
+}
+
+export interface LLMProgress extends LLMModel {
+  attempt: number
+  limit: number
+}
+
 export interface Message {
   id: string
   role: MessageRole
@@ -307,6 +318,8 @@ export interface Message {
 
   knowledge?: string[]
   isLoading?: boolean
+  llm_progress?: LLMProgress
+  llm_models?: LLMModel[]
   attachments?: ChatAttachments
 }
 

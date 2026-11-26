@@ -192,6 +192,45 @@ class GeometryModelTests(unittest.TestCase):
         self.assertIn(line_2d["id"], objects)
         self.assertIn(line_3d["id"], objects)
 
+    def test_recoloring_segments_updates_both_canvas_style_fields(self):
+        manager = StateManager()
+        conversation_id = "recolor-segments"
+        segments = {
+            "BD": [[4, 0], [4, 3]],
+            "CD": [[0, 3], [4, 3]],
+        }
+        for name, points in segments.items():
+            manager.add_object(conversation_id, {
+                "id": f"line_{name}", "kind": "line", "dimension": "2d",
+                "extent": "segment", "point_names": list(name), "points": points,
+                "style": {"color": "#dc2626", "line_style": "dashed"},
+                "color": "#dc2626", "line_style": "dashed",
+            })
+
+        result = ExecutionController(manager).run({
+            "tasks": [{
+                "id": f"recolor_{name}",
+                "domain": "geometry",
+                "operation": "update_object",
+                "object_id": f"line_{name}",
+                "input": {"style": {"color": "#2563eb"}},
+            } for name in segments],
+        }, manager.get_state(conversation_id))
+
+        self.assertTrue(result["success"], result)
+        changes = result["canvas"]
+        self.assertEqual(changes["add"], [])
+        self.assertEqual(changes["remove"], [])
+        updates = {obj["id"]: obj for obj in changes["update"]}
+        self.assertEqual(set(updates), {"line_BD", "line_CD"})
+        self.assertEqual(manager.get_state(conversation_id)["canvas_objects"], updates)
+        for name, points in segments.items():
+            obj = updates[f"line_{name}"]
+            self.assertEqual(obj["points"], points)
+            self.assertEqual(obj["style"], {"color": "#2563eb", "line_style": "dashed"})
+            self.assertEqual(obj["color"], "#2563eb")
+            self.assertEqual(obj["line_style"], "dashed")
+
     def test_moving_a_point_recomputes_dependent_points_and_linked_objects(self):
         manager = StateManager()
         conversation_id = "dependent-update"

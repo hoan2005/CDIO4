@@ -238,6 +238,19 @@ class ExecutionController:
                 if key not in metadata_fields
             }
 
+            style_aliases = ("color", "line_style")
+            incoming_style = patch.get("style")
+            if isinstance(incoming_style, dict) or any(field in patch for field in style_aliases):
+                style = {field: current[field] for field in style_aliases if field in current}
+                current_style = current.get("style")
+                if isinstance(current_style, dict):
+                    style.update(current_style)
+                style.update({field: patch[field] for field in style_aliases if field in patch})
+                if isinstance(incoming_style, dict):
+                    style.update(incoming_style)
+                patch["style"] = style
+                patch.update({field: style[field] for field in style_aliases if field in style})
+
             # Hợp nhất tọa độ để các điểm không được yêu cầu sửa vẫn được giữ lại.
             if isinstance(patch.get("coordinates"), dict):
                 old_coordinates = updated.get("coordinates")

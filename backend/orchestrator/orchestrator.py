@@ -5,8 +5,12 @@ import re
 import unicodedata
 from typing import Any, Dict, List, Optional
 
-from .llm_client import LLMClient, LLMClientError
-from .prompt import ORCHESTRATOR_SYSTEM_PROMPT, build_orchestrator_user_prompt
+from .llm_client import LLMClient
+from .prompt import (
+    GROQ_ORCHESTRATOR_SYSTEM_PROMPT,
+    ORCHESTRATOR_SYSTEM_PROMPT,
+    build_orchestrator_user_prompt,
+)
 
 
 ALLOWED_OPERATIONS = {
@@ -187,7 +191,8 @@ def ensure_answer_task(plan: Dict[str, Any], user_message: str) -> Dict[str, Any
     if not isinstance(tasks, list):
         return plan
     has_canvas_task = any(
-        isinstance(task, dict) and task.get("operation") in CANVAS_OPERATIONS
+        isinstance(task, dict) and isinstance(task.get("operation"), str)
+        and task["operation"] in CANVAS_OPERATIONS
         for task in tasks
     )
     has_answer_task = any(
@@ -228,11 +233,11 @@ def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
         raise PlanValidationError("Plan phải là một dictionary/JSON object.")
 
     problem_type = plan.get("problem_type", "other")
-    if problem_type not in ALLOWED_PROBLEM_TYPES:
+    if not isinstance(problem_type, str) or problem_type not in ALLOWED_PROBLEM_TYPES:
         problem_type = "other"
 
     dimension = plan.get("visual_dimension")
-    if dimension not in ALLOWED_DIMENSIONS:
+    if not isinstance(dimension, str) or dimension not in ALLOWED_DIMENSIONS:
         dimension = None
 
     tasks = plan.get("tasks")
@@ -254,7 +259,7 @@ def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
         seen_ids.add(task_id)
 
         operation = task.get("operation")
-        if operation not in ALLOWED_OPERATIONS:
+        if not isinstance(operation, str) or operation not in ALLOWED_OPERATIONS:
             raise PlanValidationError(
                 f"Operation '{operation}' chưa được hỗ trợ. "
                 f"Các operation hợp lệ: {sorted(ALLOWED_OPERATIONS)}"
@@ -271,6 +276,17 @@ def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
         task_input = task.get("input", {})
         if not isinstance(task_input, dict):
             raise PlanValidationError(f"input của {task_id} phải là object.")
+
+        if operation in {"draw_polygon_2d", "draw_polygon_3d"} and "vertices" in task_input:
+            vertices = task_input["vertices"]
+            if not isinstance(vertices, list) or len(vertices) < 3:
+                raise PlanValidationError(f"{task_id}: đa giác phải có ít nhất ba đỉnh.")
+        if operation == "draw_point":
+            name = task_input.get("name")
+            if not isinstance(name, str) or not name.strip():
+                raise PlanValidationError(f"{task_id}: thiếu tên của điểm cần vẽ.")
+            if "coordinates" in task_input and not isinstance(task_input["coordinates"], dict):
+                raise PlanValidationError(f"{task_id}: tọa độ phải là object theo tên điểm.")
 
         normalized_tasks.append({
             "id": task_id,
@@ -342,19 +358,25 @@ class Orchestrator:
             geometry_model=state.get("geometry_model", {}),
         )
 
+        normalized_plan = None
+
+        def prepare(raw_plan):
+            nonlocal normalized_plan
+            normalized_plan = resolve_plan_references(
+                validate_plan(ensure_answer_task(raw_plan, user_message)),
+                user_message,
+                state,
+            )
+            return normalized_plan
+
         raw_plan = self.llm_client.generate_json(
             system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
+            groq_system_prompt=GROQ_ORCHESTRATOR_SYSTEM_PROMPT,
             user_prompt=prompt,
             temperature=0.2,
+            validate=prepare,
         )
-        print(f"Raw plan from LLM: {raw_plan}")
-        if isinstance(raw_plan, dict):
-            raw_plan = ensure_answer_task(raw_plan, user_message)
-        return resolve_plan_references(
-            validate_plan(raw_plan),
-            user_message,
-            state,
-        )
+        return normalized_plan if normalized_plan is not None else prepare(raw_plan)
 
 
 def create_plan(

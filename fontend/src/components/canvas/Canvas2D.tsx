@@ -15,6 +15,7 @@ import type {
   AngleObject,
   CanvasObjectWithMeta,
   EqualSegmentsObject,
+  ObjectStyle,
 } from '@/types'
 import {
   getCanvasPointTargets,
@@ -129,15 +130,14 @@ interface Canvas2DProps {
 // OBJECT INTERFACES
 // ============================================================
 
-interface LineObject {
+interface LineObject extends ObjectStyle {
   id: string
   kind: 'line'
   dimension: '2d'
   points: [number, number][]
   extent?: 'segment' | 'infinite'
   label?: string
-  color?: string
-  line_style?: 'solid' | 'dashed' | 'dotted'
+  style?: ObjectStyle
 }
 
 interface PolygonObject {
@@ -880,7 +880,7 @@ export default function Canvas2D({
 
               const [canvasX1, canvasY1] = toCanvasPoint(point1[0], point1[1])
               const [canvasX2, canvasY2] = toCanvasPoint(point2[0], point2[1])
-              const currentColor = getRenderColor(item.id, lineObject.color || '', '#2563EB')
+              const currentColor = getRenderColor(item.id, lineObject.style?.color ?? lineObject.color ?? '', '#2563EB')
               const isInfinite = lineObject.extent === 'infinite'
               const renderedLine = isInfinite
                 ? clipInfiniteLine(
@@ -897,7 +897,7 @@ export default function Canvas2D({
                   <Line
                     points={renderedLine.flat()}
                     stroke={currentColor}
-                    dash={getDash(lineObject.line_style, 3)}
+                    dash={getDash(lineObject.style?.line_style ?? lineObject.line_style, 3)}
                     strokeWidth={isSelected ? 5 : 3}
                     lineCap="round"
                     hitStrokeWidth={15}

@@ -161,21 +161,40 @@ class ConstraintNormalizer:
                 else: validation_only.append(deepcopy(dict(raw)))
             except (ConstraintNormalizationError,TypeError,ValueError) as exc: errors.append(f"Constraint #{i} ({typ}): {exc}")
 
-        controls=coordinate_control or {}; hard={}; sources={}
+        controls = {self._name(name): control for name, control in (coordinate_control or {}).items()
+                    if isinstance(name, str) and name.strip()}
+        hard={}; sources={}
         for name, point in coords.items():
             ctl=controls.get(name,{})
             if not isinstance(ctl,Mapping): ctl={}
-            source=str(ctl.get("origin_source",ctl.get("source",""))).lower()
+            source=str(ctl.get("origin_source",ctl.get("source",""))).strip().lower()
             if source=="user" or ctl.get("fixed") is True or ctl.get("editable") is False:
                 hard[name]=list(point); sources[name]=source or "fixed"
         return {"success":not errors,"dimension":dim,"coordinates":coords,"constraints":solver,
                 "validation_only_constraints":validation_only,"hard_anchors":hard,"anchor_sources":sources,"errors":errors,"tolerance":self.tolerance}
 
-    def add_minimal_anchors(self, normalized: Dict[str, Any]) -> Dict[str, Any]:
-        out=deepcopy(normalized); coords=out.get("coordinates",{}); dim=out.get("dimension",2); gauge={}; names=list(coords)
-        if names and not out.get("hard_anchors"):
-            gauge[names[0]]=list(coords[names[0]])
-            if len(names)>=2: gauge[names[1]]=[coords[names[1]][1]] if dim==2 else [coords[names[1]][1],coords[names[1]][2]]
-            if dim==3 and len(names)>=3: gauge[names[2]]=[coords[names[2]][2]]
-        out["gauge_anchors"]=gauge
+    def add_minimal_anchors(self, normalized: Dict[str, Any], attempt: int = 0) -> Dict[str, Any]:
+        out = deepcopy(normalized)
+        coords = out["coordinates"]
+        dim = out["dimension"]
+        hard = out["hard_anchors"]
+        names = sorted({name for constraint in out["constraints"] for name in constraint["points"]}
+                       - hard.keys())
+        gauge = {}
+        if hard:
+            # First try using only the mandatory anchors. Later attempts may
+            # constrain remaining rotational degrees of freedom.
+            start = attempt - 1
+        else:
+            start = attempt
+        axis_counts = range(dim - len(hard), 0, -1)
+        if 0 <= start < len(names):
+            rotated = names[start:] + names[:start]
+            gauge = {name: coords[name][-count:] for name, count in zip(rotated, axis_counts)}
+        out["gauge_anchors"] = gauge
+        # Without mandatory anchors, try once without optional anchors after
+        # exhausting the distinct starting points.
+        out["can_retry_anchors"] = bool(names and axis_counts and (
+            attempt < len(names) if not hard else attempt <= len(names) - 1
+        ))
         return out

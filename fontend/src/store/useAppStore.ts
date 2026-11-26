@@ -211,7 +211,13 @@ export const useAppStore = create<AppState>(
 
           message: text,
 
-        }, attachments)
+        }, attachments, progress => {
+          set(state => ({
+            messages: state.messages.map(message =>
+              message.id === loadingMessage.id ? { ...message, llm_progress: progress } : message,
+            ),
+          }))
+        })
 
 
         // ====================================================
