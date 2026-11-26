@@ -49,6 +49,64 @@ kế hoạch. Backend dùng bộ dựng hình và bộ giải hiện có để k
   Markdown/LaTeX. GPT có thể trả delimiter LaTeX dạng \[...\] và \(...\).
   Giao diện chuyển các dạng này về delimiter mà ReactMarkdown/KaTeX hiểu.
 
+2.1. Công cụ và quy trình test model
+
+- Dùng script Python /tmp/nckh_llm_benchmark.py để gọi API thật và bấm giờ.
+  Script dùng LLMClient trong backend/orchestrator/llm_client.py. Gemini được
+  gọi bằng SDK google-genai qua models.generate_content. GPT và Qwen được
+  gọi bằng httpx qua /chat/completions. Whisper nhận tệp qua
+  /audio/transcriptions. Script và log của lần đo nằm trong /tmp.
+- Với mỗi mẫu ở mục 3, chuẩn bị câu hỏi, dữ liệu canvas hoặc tệp đính kèm,
+  rồi gửi cùng đầu vào mẫu cho các model phù hợp với công đoạn. Script dùng
+  prompt của backend, gồm bản rút gọn ở những công đoạn ghi tại mục 4. Mỗi
+  lần gọi dùng request_once để đo riêng model được chọn, trước khi kiểm tra
+  luồng retry và chuyển model của ứng dụng.
+- Đặt mốc bằng start = time.perf_counter() ngay trước request_once. Sau khi
+  hàm trả kết quả, tính time.perf_counter() - start, đơn vị giây. Đồng hồ
+  đo từ lúc bắt đầu gọi đến khi nhận đủ phản hồi, gồm thời gian mạng và đọc
+  phản hồi. Với mẫu lập kế hoạch thành công, script chốt thời gian trước khi
+  kiểm tra schema kế hoạch. Thời gian chờ quota giữa hai lần gọi và thời
+  gian vẽ trên giao diện nằm ngoài số giây/lần ở mục 4.
+- Script in một dòng JSON cho mỗi lần gọi. Hai log là
+  /tmp/nckh_llm_benchmark.jsonl và /tmp/nckh_llm_benchmark_final.jsonl.
+  Mỗi dòng ghi mã mẫu (test), ID model (model), số giây (s) và kết quả
+  (answer) hoặc lỗi (error, kèm detail nếu có). Dựa vào mã mẫu để đối chiếu
+  kết quả với đáp án chuẩn. Khi thử lại sau lỗi quota, lượt lỗi và lượt thử
+  lại có các dòng riêng trong log.
+
+2.2. Cách lấy số token của một lần gọi
+
+- Groq GPT/Qwen. Đọc trường usage trong JSON gốc của /chat/completions ngay
+  sau khi nhận phản hồi. Trong Python, dùng result.get("usage") rồi đọc
+  prompt_tokens (đầu vào), completion_tokens (đầu ra) và total_tokens (tổng).
+- Google Gemini. Giữ đối tượng trả về từ models.generate_content trước khi
+  lấy response.text. Đọc response.usage_metadata, gồm prompt_token_count
+  (đầu vào), candidates_token_count (nội dung sinh ra), total_token_count
+  (tổng) và thoughts_token_count (token suy luận, nếu có). Dùng số tổng do
+  API trả về. Các field thiếu được ghi là “không có dữ liệu”.
+- Whisper dùng endpoint chép lời riêng. Lần đo A1 ghi thời gian xử lý và đối
+  chiếu bản chép với nội dung WAV. Nếu cần theo dõi mức sử dụng cho Whisper,
+  ghi thời lượng tệp âm thanh riêng theo giây.
+- Log của lần đo hiện có chỉ lưu câu trả lời và lỗi sau khi LLMClient đã
+  lấy nội dung. Vì chưa lưu usage gốc, báo cáo chưa có số token đầu vào và
+  đầu ra cho các lượt thành công. Ví dụ, ở lượt P4 bị 429, Groq báo Limit
+  8.000, Used 5.797 và Requested 2.947. Đây là số liệu quota trong thông báo
+  lỗi. Muốn lập bảng token theo mẫu, cần ghi usage cùng mã mẫu, model và số
+  giây ngay tại chỗ nhận phản hồi gốc trong lần đo tiếp theo.
+
+2.3. Theo dõi model khi chạy qua ứng dụng
+
+- Dùng unittest với phản hồi mô phỏng, chủ yếu ở
+  backend/test/test_llm_routing.py và backend/test/test_chat_media.py, để
+  kiểm tra số lần gọi, thứ tự chuyển model và xử lý tệp lỗi.
+- Dùng script Python điều khiển Chrome headless để gửi mẫu P1 trên giao
+  diện, ghi lại trạng thái trong lúc chờ và xác nhận model nào đã hoàn thành
+  từng công đoạn. Khi cần xem dữ liệu backend gửi, kiểm tra các sự kiện
+  progress của POST /chat/stream theo stage, provider, model, attempt và
+  limit. Kết quả cuối có message.llm_models ghi các model trả dữ liệu hợp
+  lệ. Số giây từng lần gọi lấy từ log benchmark. Token lấy từ phản hồi gốc
+  của API theo mục 2.2.
+
 3. Bộ đề và đáp án chuẩn
 
 P1  “Cho A(0,0), B(4,0). Hãy dựng M là trung điểm của AB.”
@@ -150,3 +208,5 @@ Nguồn về khả năng của API
   https://console.groq.com/docs/model/qwen/qwen3.8-27b
   https://console.groq.com/docs/structured-outputs
   https://console.groq.com/docs/speech-to-text
+  https://console.groq.com/docs/api-reference
+  https://ai.google.dev/api/generate-content#UsageMetadata

@@ -11,3 +11,6 @@ hiện tại tôi bảo đổi màu cạnh CD và BD sang màu xanh nhưng nó c
  cần pahir  có vẽ đường thẳng dài và đường thẳng có đầu cuối( đoạn)
 
 
+bo giai toan
+ can su dung langfuse cho he thong that
+ Langfuse thường gửi dữ liệu theo cơ chế nền nên ảnh hưởng tốc độ chính thường nhỏ, nhưng vẫn có thêm chi phí mạng và xử lý. Nếu ưu tiên tốc độ tối đa, có thể dùng Langfuse trong giai đoạn kiểm thử, sau đó tắt tracing khi vận hành ổn định. Khi có lỗi khó tái hiện, bật lại tracing để điều tra.
